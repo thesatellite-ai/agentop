@@ -1,0 +1,33 @@
+<svg width="760" height="224" viewBox="0 0 760 224" fill="none" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="agentop — htop for AI coding agents">
+  <title>agentop</title>
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="208" y2="208" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#24283B"/>
+      <stop offset="1" stop-color="#16161E"/>
+    </linearGradient>
+  </defs>
+
+  <!-- icon -->
+  <g transform="translate(20,20) scale(0.72)">
+    <rect x="8" y="8" width="240" height="240" rx="56" fill="url(#bg)"/>
+    <rect x="8.5" y="8.5" width="239" height="239" rx="55.5" fill="none" stroke="#3B4261" stroke-width="1"/>
+    <circle cx="64" cy="68" r="8" fill="#F7768E"/>
+    <circle cx="92" cy="68" r="8" fill="#E0AF68"/>
+    <circle cx="120" cy="68" r="8" fill="#9ECE6A"/>
+    <rect x="56" y="106" width="144" height="22" rx="11" fill="#292E42"/>
+    <rect x="56" y="106" width="144" height="22" rx="11" fill="#7AA2F7"/>
+    <rect x="56" y="140" width="144" height="22" rx="11" fill="#292E42"/>
+    <rect x="56" y="140" width="104" height="22" rx="11" fill="#73DACA"/>
+    <rect x="56" y="174" width="144" height="22" rx="11" fill="#292E42"/>
+    <rect x="56" y="174" width="68" height="22" rx="11" fill="#BB9AF7"/>
+    <rect x="178" y="174" width="22" height="22" rx="6" fill="#E0AF68"/>
+  </g>
+
+  <!-- wordmark (monospace, since it's a CLI) -->
+  <text x="214" y="118" font-family="'SF Mono','JetBrains Mono','Fira Code',ui-monospace,Menlo,Consolas,monospace" font-size="76" font-weight="700" letter-spacing="-2">
+    <tspan fill="#C0CAF5">agent</tspan><tspan fill="#7AA2F7">op</tspan>
+  </text>
+
+  <!-- tagline -->
+  <text x="216" y="158" font-family="'SF Mono','JetBrains Mono','Fira Code',ui-monospace,Menlo,Consolas,monospace" font-size="22" letter-spacing="0" fill="#565F89">htop for AI coding agents</text>
+</svg>

@@ -1,0 +1,33 @@
+<svg width="256" height="256" viewBox="0 0 256 256" fill="none" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="agentop">
+  <title>agentop</title>
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="256" y2="256" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#24283B"/>
+      <stop offset="1" stop-color="#16161E"/>
+    </linearGradient>
+  </defs>
+
+  <!-- app surface -->
+  <rect x="8" y="8" width="240" height="240" rx="56" fill="url(#bg)"/>
+  <rect x="8.5" y="8.5" width="239" height="239" rx="55.5" fill="none" stroke="#3B4261" stroke-width="1"/>
+
+  <!-- terminal title dots -->
+  <circle cx="64" cy="68" r="8" fill="#F7768E"/>
+  <circle cx="92" cy="68" r="8" fill="#E0AF68"/>
+  <circle cx="120" cy="68" r="8" fill="#9ECE6A"/>
+
+  <!-- process activity meters: dim track + colored fill of decreasing length -->
+  <g>
+    <rect x="56" y="106" width="144" height="22" rx="11" fill="#292E42"/>
+    <rect x="56" y="106" width="144" height="22" rx="11" fill="#7AA2F7"/>
+
+    <rect x="56" y="140" width="144" height="22" rx="11" fill="#292E42"/>
+    <rect x="56" y="140" width="104" height="22" rx="11" fill="#73DACA"/>
+
+    <rect x="56" y="174" width="144" height="22" rx="11" fill="#292E42"/>
+    <rect x="56" y="174" width="68" height="22" rx="11" fill="#BB9AF7"/>
+  </g>
+
+  <!-- cursor block: the reap target -->
+  <rect x="178" y="174" width="22" height="22" rx="6" fill="#E0AF68"/>
+</svg>
