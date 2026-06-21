@@ -1,0 +1,74 @@
+version: 2
+
+project_name: agentop
+
+# Single-module Go project. Pure-Go sqlite (modernc.org/sqlite) => CGO_ENABLED=0
+# => every target cross-compiles from one runner. No build tags needed.
+
+builds:
+  - id: agentop
+    main: .
+    binary: agentop
+    env:
+      - CGO_ENABLED=0
+    flags:
+      - -trimpath
+    ldflags:
+      - -s -w
+      - -X main.version={{ .Version }}
+    # macOS + Linux only: agentop introspects processes via ps/lsof and reaps
+    # via SIGTERM (syscall.Kill) — both unix-only. Windows is out of scope.
+    goos:
+      - linux
+      - darwin
+    goarch:
+      - amd64
+      - arm64
+
+archives:
+  - id: agentop
+    formats: ["tar.gz"]
+    name_template: "agentop_{{ .Os }}_{{ .Arch }}"
+    files:
+      - README.md
+      - LICENSE
+
+checksum:
+  name_template: "checksums.txt"
+
+snapshot:
+  version_template: "0.0.0-snapshot-{{ .ShortCommit }}"
+
+changelog:
+  use: github
+  sort: asc
+  filters:
+    exclude:
+      - "^docs:"
+      - "^test:"
+      - "^chore:"
+      - "Merge pull request"
+
+release:
+  draft: false
+  prerelease: auto
+
+# Publishes Formula/agentop.rb into the shared org tap.
+# Needs repo secret HOMEBREW_TAP_GITHUB_TOKEN (PAT with contents:write on the
+# tap repo). Users: `brew install thesatellite-ai/tap/agentop`.
+brews:
+  - name: agentop
+    repository:
+      owner: thesatellite-ai
+      name: homebrew-tap
+      branch: main
+      token: "{{ .Env.HOMEBREW_TAP_GITHUB_TOKEN }}"
+    directory: Formula
+    homepage: "https://github.com/thesatellite-ai/agentop"
+    description: "htop for AI coding agents — find and reap idle Claude/cmux/emdash sessions"
+    license: "Apache-2.0"
+    skip_upload: auto
+    install: |
+      bin.install "agentop"
+    test: |
+      system "#{bin}/agentop", "version"
