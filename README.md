@@ -124,7 +124,7 @@ So in the TUI, reap follows what you are looking at. If the **emdash** group is 
 
 ### Safe by design
 
-- **SIGTERM, never SIGKILL** by default, so the agent shuts down gracefully.
+- **SIGTERM first**, so the agent shuts down gracefully and flushes its state. Only a session that ignores SIGTERM and is still alive after a short grace period is escalated to SIGKILL — a kill should not silently no-op.
 - **A confirmation gate** on every kill shows the count and the RAM you will reclaim.
 - **Read-only until you act.** Discovery never touches anything; the only write is the signal you ask for.
 
