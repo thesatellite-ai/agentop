@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/gdamore/tcell/v2"
 	"github.com/rivo/tview"
@@ -155,13 +156,34 @@ func (a *App) openKillModal(pids []int) {
 	a.app.SetFocus(modal)
 }
 
+// killGrace is how long Reap waits for a SIGTERM'd session to flush and exit
+// before escalating to SIGKILL. Generous enough for Claude to checkpoint.
+const killGrace = 4 * time.Second
+
+// doKill reaps the given pids. The reap blocks until the kernel confirms each
+// process is gone (Reap polls, retries with SIGKILL on stragglers), so it runs
+// on a background goroutine to keep the UI responsive; the post-kill repaint is
+// marshaled back onto the tview event loop via QueueUpdateDraw. This fixes the
+// two coupled bugs: the list stayed stale because the old code reloaded before
+// the async SIGTERM landed, and a single keypress "didn't kill" for the same
+// reason — the process was merely mid-shutdown, not ignoring the signal.
 func (a *App) doKill(pids []int) {
-	_ = collect.KillAll(pids)
 	for _, p := range pids {
 		delete(a.selected, p)
 	}
-	_ = a.reload()
-	a.setStatus(fmt.Sprintf("reaped %d session(s)", len(pids)))
+	a.setStatus(fmt.Sprintf("reaping %d session(s)…", len(pids)))
+
+	go func() {
+		survivors := collect.Reap(pids, killGrace)
+		a.app.QueueUpdateDraw(func() {
+			_ = a.reload()
+			if len(survivors) > 0 {
+				a.setStatus(fmt.Sprintf("reaped %d, %d survived (could not kill)", len(pids)-len(survivors), len(survivors)))
+			} else {
+				a.setStatus(fmt.Sprintf("reaped %d session(s)", len(pids)))
+			}
+		})
+	}()
 }
 
 // --- reap by idle ----------------------------------------------------------

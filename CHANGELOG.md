@@ -2,6 +2,13 @@
 
 All notable changes to agentop are documented here. The format follows [Keep a Changelog](https://keepachangelog.com/), and the project aims for [Semantic Versioning](https://semver.org/).
 
+## [0.1.4] - 2026-06-30
+
+### Fixed
+
+- Killing a session now refreshes the process list automatically. The previous code sent SIGTERM and reloaded immediately, before the asynchronous signal had landed, so the dying session reappeared and you had to press `r` to see it go.
+- A single `x` (or reap) now reliably reaps a session. The kill waits for the kernel to confirm the process is gone — sending SIGTERM, giving it a grace period to flush, then escalating a non-responsive survivor to SIGKILL — instead of returning while the process was merely mid-shutdown and looking un-killed.
+
 ## [0.1.3] - 2026-06-21
 
 First public release.
@@ -19,4 +26,5 @@ First public release.
 - Fuzzy quick-filter (`/`): live subsequence match across the agent, source, task, and cwd columns, combined with the sidebar filter. The table title shows the active query and match count.
 - Single static binary (pure-Go SQLite, `CGO_ENABLED=0`) for macOS and Linux, distributed via Homebrew tap, install script, and `go install`.
 
+[0.1.4]: https://github.com/thesatellite-ai/agentop/releases/tag/v0.1.4
 [0.1.3]: https://github.com/thesatellite-ai/agentop/releases/tag/v0.1.3
