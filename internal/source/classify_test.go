@@ -59,6 +59,71 @@ func TestClassify(t *testing.T) {
 			idx:  index([3]string{"50", "1", "claude"}),
 			pid:  50, cwd: "/Users/x/code/proj", want: model.SourceDirect,
 		},
+		// Runbay fixtures: the chain seen on a live Mac, paths scrubbed.
+		// claude -> zsh -l -> runbay-ptyd-<ver> ptyd --daemon -> launchd.
+		{
+			name: "runbay via pty daemon (macOS)",
+			idx: index(
+				[3]string{"60", "61", "claude --resume 0f79d084 --dangerously-skip-permissions --chrome"},
+				[3]string{"61", "62", "/bin/zsh -l"},
+				[3]string{"62", "1", "/Users/x/.runbay/bin/runbay-ptyd-0.1.0 ptyd --daemon"},
+			),
+			pid: 60, cwd: "/Users/x/code/proj", want: model.SourceRunbay,
+		},
+		{
+			name: "runbay via pty daemon run as a subcommand (linux)",
+			idx: index(
+				[3]string{"70", "71", "claude"},
+				[3]string{"71", "72", "-zsh"},
+				[3]string{"72", "1", "/usr/local/bin/runbay ptyd --daemon"},
+			),
+			pid: 70, want: model.SourceRunbay,
+		},
+		{
+			name: "runbay node-wrapped agent one hop deeper",
+			idx: index(
+				[3]string{"80", "81", "node /opt/bin/claude"},
+				[3]string{"81", "82", "/bin/bash -c claude"},
+				[3]string{"82", "83", "/bin/zsh -l"},
+				[3]string{"83", "1", "/Users/x/.runbay/bin/runbay-ptyd-0.2.0 ptyd --daemon"},
+			),
+			pid: 80, want: model.SourceRunbay,
+		},
+		{
+			name: "plain Terminal login shell stays direct",
+			idx: index(
+				[3]string{"90", "91", "claude --resume ca8845bd"},
+				[3]string{"91", "92", "-zsh"},
+				[3]string{"92", "93", "login -pfl x /bin/bash -c exec -la zsh /bin/zsh"},
+				[3]string{"93", "1", "/System/Applications/Utilities/Terminal.app/Contents/MacOS/Terminal"},
+			),
+			pid: 90, want: model.SourceDirect,
+		},
+		{
+			name: "a runbay path in an ancestor's args is not runbay",
+			idx: index(
+				[3]string{"95", "96", "claude"},
+				[3]string{"96", "1", "ssh host cd /space/projects/runbay/wt-1 && claude"},
+			),
+			pid: 95, want: model.SourceDirect,
+		},
+		{
+			name: "runbay app daemon as the launcher",
+			idx: index(
+				[3]string{"97", "98", "claude"},
+				[3]string{"98", "1", "/Applications/Runbay.app/Contents/MacOS/runbay-daemon serve"},
+			),
+			pid: 97, want: model.SourceRunbay,
+		},
+		{
+			name: "cmux wins over runbay when nearer",
+			idx: index(
+				[3]string{"100", "101", "claude"},
+				[3]string{"101", "102", "/bin/zsh /T/cmux-agent-resume/claude-abc.zsh"},
+				[3]string{"102", "1", "/Users/x/.runbay/bin/runbay-ptyd-0.1.0 ptyd --daemon"},
+			),
+			pid: 100, want: model.SourceCmux,
+		},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {

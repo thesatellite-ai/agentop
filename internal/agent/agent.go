@@ -1,6 +1,6 @@
 // Package agent holds the pluggable detector registry that maps a running
-// process to an AgentKind. v1 registers only Claude, but all discovery flows
-// through the registry so adding Codex/Cursor/etc. later is one new Detector.
+// process to an AgentKind. It registers Claude Code and Codex; all discovery
+// flows through the registry so adding another agent is one new Detector.
 package agent
 
 import "github.com/thesatellite-ai/agentop/internal/model"
