@@ -8,7 +8,7 @@ const (
 	footerHeight = 1 // bottom keybinding bar, one row
 
 	sidebarWidth    = 26 // source sidebar column width
-	detailHeight    = 9  // detail pane height (fixed; table takes the rest)
+	detailHeight    = 10 // detail pane height (fixed; table takes the rest)
 	tableProportion = 3  // table flex weight vs. the rest of the right column
 
 	memBarWidth       = 10  // width of a sidebar group's memory bar

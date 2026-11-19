@@ -1,7 +1,8 @@
 // agentop — htop for AI coding agents.
 //
-// Discovers running Claude Code (and, later, other agent) sessions across
-// cmux, emdash, and plain terminals; shows memory + idle age + owning task;
+// Discovers running AI coding-agent sessions (Claude Code, Codex, Gemini CLI,
+// pi, opencode, through agentio) across cmux, emdash, runbay and plain
+// terminals; shows memory + idle age + owning task;
 // and lets you selectively reap the idle ones to reclaim RAM.
 //
 // Build:   go build -o bin/agentop .

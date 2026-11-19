@@ -10,8 +10,8 @@ import (
 
 func TestRenderTable(t *testing.T) {
 	sessions := []model.Session{
-		{PID: 97170, Agent: model.AgentCodex, Source: model.SourceDirect, RSSBytes: 214 * 1024 * 1024, Idle: 2 * time.Minute, Cwd: "/code/agentop"},
-		{PID: 45930, Agent: model.AgentClaude, Source: model.SourceEmdash, RSSBytes: 864 * 1024 * 1024, Task: "filemark", Cwd: "/code/fm"},
+		{PID: 97170, Agent: "codex", Source: model.SourceDirect, RSSBytes: 214 * 1024 * 1024, Idle: 2 * time.Minute, Cwd: "/code/agentop"},
+		{PID: 45930, Agent: "claude", Source: model.SourceEmdash, RSSBytes: 864 * 1024 * 1024, Task: "filemark", Cwd: "/code/fm"},
 	}
 	out := renderTable(sessions)
 

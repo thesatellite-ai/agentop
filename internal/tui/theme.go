@@ -2,6 +2,12 @@ package tui
 
 import (
 	"github.com/gdamore/tcell/v2"
+	"github.com/ubgo/agentio"
+	"github.com/ubgo/agentio/claude"
+	"github.com/ubgo/agentio/codex"
+	"github.com/ubgo/agentio/gemini"
+	"github.com/ubgo/agentio/opencode"
+	"github.com/ubgo/agentio/pi"
 
 	"github.com/thesatellite-ai/agentop/internal/model"
 )
@@ -62,14 +68,21 @@ func sourceColor(s model.Source) tcell.Color {
 	}
 }
 
-// agentColor gives each agent kind a stable, distinct hue, kept clear of the
-// source colors above so AGENT and SRC columns never blur together.
-func agentColor(a model.AgentKind) tcell.Color {
+// agentColor gives each agent a stable, distinct hue, kept clear of the
+// source colors above so AGENT and SRC columns never blur together. An agent
+// without its own hue (a custom agentio agent) is muted.
+func agentColor(a agentio.ID) tcell.Color {
 	switch a {
-	case model.AgentClaude:
+	case claude.ID:
 		return tcell.NewHexColor(0xFF9E64) // orange
-	case model.AgentCodex:
+	case codex.ID:
 		return tcell.NewHexColor(0x7DCFFF) // cyan
+	case gemini.ID:
+		return tcell.NewHexColor(0xFCA7EA) // pink
+	case pi.ID:
+		return tcell.NewHexColor(0xC3E88D) // lime
+	case opencode.ID:
+		return tcell.NewHexColor(0xF7C67F) // sand
 	default:
 		return theme.Muted
 	}

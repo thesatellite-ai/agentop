@@ -1,8 +1,11 @@
 package tui
 
 import (
+	"strings"
 	"testing"
 	"time"
+
+	"github.com/ubgo/agentio"
 
 	"github.com/thesatellite-ai/agentop/internal/collect"
 	"github.com/thesatellite-ai/agentop/internal/model"
@@ -12,7 +15,7 @@ import (
 // so the smoke test never depends on what runs on the machine.
 func fixtureSessions() []model.Session {
 	now := time.Date(2026, 11, 19, 12, 0, 0, 0, time.UTC)
-	row := func(pid int, ag model.AgentKind, src model.Source, rssMB uint64, idle time.Duration, task string) model.Session {
+	row := func(pid int, ag agentio.ID, src model.Source, rssMB uint64, idle time.Duration, task string) model.Session {
 		return model.Session{
 			PID: pid, PPID: 1, Agent: ag, Source: src,
 			RSSBytes:  rssMB * 1024 * 1024,
@@ -26,12 +29,12 @@ func fixtureSessions() []model.Session {
 		}
 	}
 	return []model.Session{
-		row(101, model.AgentClaude, model.SourceRunbay, 640, 3*24*time.Hour, ""),
-		row(102, model.AgentClaude, model.SourceRunbay, 420, time.Minute, ""),
-		row(103, model.AgentClaude, model.SourceCmux, 900, 26*time.Hour, ""),
-		row(104, model.AgentCodex, model.SourceEmdash, 300, 5*time.Hour, "fix-login"),
-		row(105, model.AgentClaude, model.SourceDirect, 512, 10*time.Second, ""),
-		row(106, model.AgentCodex, model.SourceDirect, 128, 9*24*time.Hour, ""),
+		row(101, "claude", model.SourceRunbay, 640, 3*24*time.Hour, ""),
+		row(102, "claude", model.SourceRunbay, 420, time.Minute, ""),
+		row(103, "claude", model.SourceCmux, 900, 26*time.Hour, ""),
+		row(104, "codex", model.SourceEmdash, 300, 5*time.Hour, "fix-login"),
+		row(105, "claude", model.SourceDirect, 512, 10*time.Second, ""),
+		row(106, "codex", model.SourceDirect, 128, 9*24*time.Hour, ""),
 	}
 }
 
@@ -149,5 +152,67 @@ func TestTargetsForCarriesStartTime(t *testing.T) {
 	}
 	if got[1].PID != 999 || !got[1].StartedAt.IsZero() {
 		t.Fatalf("target for unknown pid = %+v, want no start time", got[1])
+	}
+}
+
+func TestAgentOrder(t *testing.T) {
+	t.Parallel()
+	got := agentOrder(map[agentio.ID]int{"zed-agent": 1, "codex": 2, "acme": 1})
+	want := []agentio.ID{"claude", "codex", "gemini", "pi", "opencode", "acme", "zed-agent"}
+	if len(got) != len(want) {
+		t.Fatalf("got %v, want %v", got, want)
+	}
+	for i := range want {
+		if got[i] != want[i] {
+			t.Fatalf("got %v, want %v", got, want)
+		}
+	}
+}
+
+func TestAgentColors(t *testing.T) {
+	t.Parallel()
+	seen := map[string]agentio.ID{}
+	for _, id := range knownAgents {
+		c := hex(agentColor(id))
+		if c == hex(theme.Muted) {
+			t.Errorf("%s has no hue of its own", id)
+		}
+		if other, dup := seen[c]; dup {
+			t.Errorf("%s and %s share %s", id, other, c)
+		}
+		seen[c] = id
+	}
+	if agentColor("acme") != theme.Muted {
+		t.Error("an unknown agent should be muted")
+	}
+}
+
+func TestSessionLabel(t *testing.T) {
+	t.Parallel()
+	if got := sessionLabel(model.Session{}, "/home/alice"); got != "—" {
+		t.Fatalf("empty = %q", got)
+	}
+	s := model.Session{
+		ConversationID: "0f79d084-6061-439e-b571-3668de33ed34", Join: agentio.JoinExact,
+		Status: agentio.SessionWaiting, Version: "2.1.300", Home: "/home/alice/.claude",
+	}
+	got := sessionLabel(s, "/home/alice")
+	for _, want := range []string{"0f79d084-6061-439e-b571-3668de33ed34", "(exact)", "waiting", "v2.1.300", "home ~/.claude"} {
+		if !strings.Contains(got, want) {
+			t.Errorf("label %q missing %q", got, want)
+		}
+	}
+}
+
+// TestNewAppHasNoSource checks an App built without Run lists nothing and
+// signals nothing.
+func TestNewAppHasNoSource(t *testing.T) {
+	t.Parallel()
+	a := newApp()
+	if _, err := a.load(); err == nil {
+		t.Fatal("load without a source should fail")
+	}
+	if got := a.reap([]collect.Target{{PID: 1}}); got != nil {
+		t.Fatalf("reap without a source = %v", got)
 	}
 }

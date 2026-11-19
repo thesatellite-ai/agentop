@@ -9,7 +9,7 @@ Thanks for your interest. `agentop` is open source under the [Apache License 2.0
 
 ## Development
 
-`agentop` is a single Go module — no workspace, no codegen. Requires Go 1.22+ on macOS or Linux.
+`agentop` is a single Go module — no workspace, no codegen. Requires Go 1.26.4+ on macOS or Linux.
 
 ```sh
 task build      # build ./bin/agentop
@@ -28,22 +28,23 @@ task snapshot   # local goreleaser snapshot (no publish)
 ```
 main.go                  entry point (cobra)
 internal/
-  agent/                 pluggable agent-detector registry (Claude today)
-  discover/              process listing (ps), cwd (lsof), tty activity, sysmem
-  source/                cmux / emdash / direct classification
+  collect/               pipeline on agentio (process table, agent classification,
+                         process-to-session join) + the kill path (signals from
+                         agentio's stop plan, pid-reuse guard)
+  discover/              tty activity and physical memory
+  source/                cmux / emdash / runbay / direct launcher classification
   emdash/                read-only emdash DB reader (task names)
   model/                 Session type + idle computation
-  collect/               pipeline orchestration + kill
   cli/                   cobra commands: list, reap, version
   tui/                   tview master-detail dashboard
 ```
 
-A platform note: process/terminal introspection is Unix-only. cwd resolution lives in `discover/cwd_unix.go` (`//go:build darwin || linux`); terminal-time stat is split across `activity_darwin.go` / `activity_linux.go` for the OS-specific `Stat_t` fields. Keep both in sync when changing the activity logic.
+Agent knowledge (which process is which agent, its kind, the conversation it serves, how to stop it) lives in [agentio](https://github.com/ubgo/agentio), not here: add or fix an agent there. agentop keeps the TUI and CLI, launcher labels, and the signal loop. A platform note: terminal-time stat is split across `activity_darwin.go` / `activity_linux.go` for the OS-specific `Stat_t` fields. Keep both in sync when changing the activity logic.
 
 ## Pull requests
 
 - Branch from `main`; keep PRs focused.
-- `gofmt` clean; `go vet ./...` clean; `go test ./...` passes.
+- `gofmt` clean; `go vet ./...` clean; `go test -race ./...` passes; `golangci-lint run ./...` reports 0 issues.
 - Cross-compile must stay green: `goreleaser build --snapshot --clean` (darwin + linux, arm64 + amd64).
 - Use [Conventional Commits](https://www.conventionalcommits.org/) (`feat:`, `fix:`, `refactor:`, `docs:`, `chore:`, `test:`). **No AI-attribution / co-author trailers** in commit messages.
 - A push to `main` auto-publishes a patch release. Put `[skip release]` in the commit **subject** for docs-only or workflow-only changes.
