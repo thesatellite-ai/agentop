@@ -25,6 +25,12 @@ func linkAs(t *testing.T, src, dir, name string) string {
 	return dst
 }
 
+// exitsOnTerm is a shell loop that ends on SIGTERM (no trap). It runs under
+// /bin/sh rather than /bin/sleep linked as "claude": on a multi-call coreutils
+// (uutils on Ubuntu 26.04) sleep picks its applet from argv[0] and exits at
+// once when that name is "claude", so the child was gone before the table read.
+const exitsOnTerm = "while :; do sleep 0.1; done"
+
 // spawnSession starts this test's own child as a fake "claude" session and
 // returns it with the start time the real process table reads for it.
 func spawnSession(t *testing.T, c *Collector, src string, args ...string) (*exec.Cmd, time.Time) {
@@ -72,7 +78,7 @@ func TestReapOwnChild(t *testing.T) {
 	ctx := context.Background()
 
 	t.Run("exits on SIGTERM", func(t *testing.T) {
-		cmd, start := spawnSession(t, c, "/bin/sleep", "60")
+		cmd, start := spawnSession(t, c, "/bin/sh", "-c", exitsOnTerm)
 		got := c.Reaper().Reap(ctx, []Target{{cmd.Process.Pid, start}})
 		if got[0].Outcome != OutcomeStopped {
 			t.Fatalf("outcome %q (err %v, reason %q), want stopped", got[0].Outcome, got[0].Err, got[0].Reason)
@@ -80,7 +86,7 @@ func TestReapOwnChild(t *testing.T) {
 	})
 
 	t.Run("stale start time is never signalled", func(t *testing.T) {
-		cmd, start := spawnSession(t, c, "/bin/sleep", "60")
+		cmd, start := spawnSession(t, c, "/bin/sh", "-c", exitsOnTerm)
 		got := c.Reaper().Reap(ctx, []Target{{cmd.Process.Pid, start.Add(-time.Hour)}})
 		if got[0].Outcome != OutcomeChanged {
 			t.Fatalf("outcome %q, want changed", got[0].Outcome)
