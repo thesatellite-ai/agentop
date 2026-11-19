@@ -4,9 +4,9 @@ package model
 
 import "time"
 
-// AgentKind identifies which AI coding agent a process belongs to. v1 ships
-// only Claude; the registry (internal/agent) is structured so adding Codex,
-// Cursor, etc. is one new detector with no core changes.
+// AgentKind identifies which AI coding agent a process belongs to: Claude Code
+// or Codex today; the registry (internal/agent) is structured so adding another
+// agent is one new detector with no core changes.
 type AgentKind string
 
 const (
@@ -23,8 +23,12 @@ type Source string
 const (
 	SourceCmux   Source = "cmux"
 	SourceEmdash Source = "emdash"
+	SourceRunbay Source = "runbay"
 	SourceDirect Source = "direct"
 )
+
+// Sources lists every Source, in the order the UI shows them.
+var Sources = []Source{SourceEmdash, SourceCmux, SourceRunbay, SourceDirect}
 
 // Session is one running agent process, enriched with everything needed to
 // decide whether to reap it.

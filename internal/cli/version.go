@@ -11,8 +11,8 @@ func newVersionCmd() *cobra.Command {
 		Use:   "version",
 		Short: "Print the agentop version",
 		RunE: func(cmd *cobra.Command, args []string) error {
-			fmt.Fprintf(cmd.OutOrStdout(), "%s %s\n", BinaryName, version)
-			return nil
+			_, err := fmt.Fprintf(cmd.OutOrStdout(), "%s %s\n", BinaryName, version)
+			return err
 		},
 	}
 }
