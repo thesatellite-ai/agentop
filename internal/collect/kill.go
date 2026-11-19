@@ -133,7 +133,7 @@ type Reaper struct {
 func (c *Collector) Reaper() Reaper {
 	return Reaper{
 		Table:    c.table,
-		Alive:    c.Host.ProcessesAlive,
+		Alive:    c.alive,
 		Classify: func(p agentio.Process) (agentio.ProcessInfo, bool) { return agentio.ClassifyProcess(c.Agents, p) },
 		Plan:     c.plan,
 		Signal:   syscall.Kill,
@@ -142,6 +142,13 @@ func (c *Collector) Reaper() Reaper {
 		Poll:     defaultPoll,
 		KillWait: defaultKillWait,
 	}
+}
+
+// alive is agentio's batch liveness check with an exact start-time match:
+// the start times come from the same reader, so the same process always
+// reads the same value and agentio's default 2s tolerance is not needed.
+func (c *Collector) alive(ctx context.Context, refs []agentio.ProcessRef) ([]agentio.Liveness, error) {
+	return c.Host.ProcessesAlive(ctx, refs, agentio.ExactStart())
 }
 
 // plan asks p's agent for its stop plan, with what the agent recorded about

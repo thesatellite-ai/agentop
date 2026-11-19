@@ -109,8 +109,8 @@ func TestSessions(t *testing.T) {
 
 	// One cwd lookup per listed session and no more: the batch join reuses
 	// Process.Cwd instead of looking it up again.
-	if fp.CwdCalls != len(want) {
-		t.Errorf("cwd lookups = %d, want %d (one per session)", fp.CwdCalls, len(want))
+	if n := fp.Counts().CwdCalls; n != len(want) {
+		t.Errorf("cwd lookups = %d, want %d (one per session)", n, len(want))
 	}
 
 	alice := byPID[102]

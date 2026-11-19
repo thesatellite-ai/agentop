@@ -47,7 +47,10 @@ func testReaper(t *testing.T, table map[int]agentio.Process, signal collect.Sign
 		}
 		return out, nil
 	}
-	r.Alive = agentio.Host{Processes: tableLister(r.Table)}.ProcessesAlive
+	host := agentio.Host{Processes: tableLister(r.Table)}
+	r.Alive = func(ctx context.Context, refs []agentio.ProcessRef) ([]agentio.Liveness, error) {
+		return host.ProcessesAlive(ctx, refs, agentio.ExactStart())
+	}
 	r.Signal = signal
 	var slept time.Duration
 	r.Sleep = func(d time.Duration) { slept += d }

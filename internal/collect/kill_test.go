@@ -57,7 +57,7 @@ func (f *fakeOS) Cwd(context.Context, int) (string, error) { return "", errors.N
 
 // alive is agentio's real batch liveness check on f's table.
 func (f *fakeOS) alive(ctx context.Context, refs []agentio.ProcessRef) ([]agentio.Liveness, error) {
-	return agentio.Host{Processes: f}.ProcessesAlive(ctx, refs)
+	return agentio.Host{Processes: f}.ProcessesAlive(ctx, refs, agentio.ExactStart())
 }
 
 func (f *fakeOS) signal(pid int, sig syscall.Signal) error {
@@ -598,5 +598,31 @@ func TestSummary(t *testing.T) {
 	}
 	if !(Result{Outcome: OutcomeChanged}).Gone() || (Result{Outcome: OutcomeRefused}).Gone() {
 		t.Fatal("Gone: changed is gone, refused is not")
+	}
+}
+
+// TestReaperGracePollExactStart checks the grace poll matches start times
+// exactly: a pid reused one second after the original started (inside
+// agentio's default 2s tolerance) counts as ended at once, so the reaper stops
+// polling and never reaches the SIGKILL step.
+func TestReaperGracePollExactStart(t *testing.T) {
+	t.Parallel()
+	f := &fakeOS{procs: procs(row(10, 1, t0, aliceSession))}
+	f.onSignal = func(*fakeOS, int, syscall.Signal) error { return nil } // ignores SIGTERM
+	f.onRead = func(f *fakeOS, n int) error {
+		if n == 2 {
+			f.procs[10] = row(10, 1, t0.Add(time.Second), bobSession)
+		}
+		return nil
+	}
+	got := f.reaper(t).Reap(context.Background(), []Target{{10, t0}})
+	if got[0].Outcome != OutcomeStopped {
+		t.Fatalf("outcome %q, want stopped", got[0].Outcome)
+	}
+	if !slices.Equal(f.signals, []sent{{10, syscall.SIGTERM}}) {
+		t.Fatalf("signals = %v, want only the SIGTERM", f.signals)
+	}
+	if f.reads != 2 {
+		t.Fatalf("table reads = %d, want 2 (the pre-signal check and one poll)", f.reads)
 	}
 }
