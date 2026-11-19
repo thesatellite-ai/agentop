@@ -2,6 +2,7 @@ package cli
 
 import (
 	"bufio"
+	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -58,23 +59,30 @@ and the npm codex launcher are not sessions and are never reaped.`,
 			if want != "" {
 				scope = string(want)
 			}
+			out := cmd.OutOrStdout()
 			if len(victims) == 0 {
-				fmt.Fprintf(cmd.OutOrStdout(), "Nothing idle ≥ %dd in %s.\n", idleDays, scope)
-				return nil
+				_, err := fmt.Fprintf(out, "Nothing idle ≥ %dd in %s.\n", idleDays, scope)
+				return err
 			}
 
-			fmt.Fprint(cmd.OutOrStdout(), renderTable(victims))
+			// A failed write here aborts before anything is signalled: the
+			// user must see exactly what dies before confirming.
+			if _, err := fmt.Fprint(out, renderTable(victims)); err != nil {
+				return err
+			}
 			if !yes {
 				var total uint64
 				for _, s := range victims {
 					total += s.RSSBytes
 				}
-				fmt.Fprintf(cmd.OutOrStdout(), "\nKill %d session(s), reclaim ~%s? [y/N] ", len(victims), mem(total))
+				if _, err := fmt.Fprintf(out, "\nKill %d session(s), reclaim ~%s? [y/N] ", len(victims), mem(total)); err != nil {
+					return err
+				}
 				reader := bufio.NewReader(os.Stdin)
-				line, _ := reader.ReadString('\n')
+				line, _ := reader.ReadString('\n') // EOF or a read error reads as "no"
 				if strings.TrimSpace(strings.ToLower(line)) != "y" {
-					fmt.Fprintln(cmd.OutOrStdout(), "Aborted.")
-					return nil
+					_, err := fmt.Fprintln(out, "Aborted.")
+					return err
 				}
 			}
 			return reapSessions(cmd.OutOrStdout(), victims, collect.NewReaper(collect.DefaultGrace))
@@ -88,13 +96,15 @@ and the npm codex launcher are not sessions and are never reaped.`,
 
 // reapSessions stops victims through r (the same path the TUI uses: SIGTERM,
 // grace, identity re-check, SIGKILL) and reports every session that was not
-// cleanly stopped. It returns an error when any session failed or survived.
+// cleanly stopped. It returns an error when any session failed or survived,
+// joined with any error writing the report (the signals were already sent).
 func reapSessions(w io.Writer, victims []model.Session, r collect.Reaper) error {
 	targets := make([]collect.Target, len(victims))
 	for i, s := range victims {
 		targets[i] = collect.TargetOf(s)
 	}
 	results := r.Reap(targets)
+	var writeErr error
 	for _, res := range results {
 		if res.Outcome == collect.OutcomeStopped {
 			continue
@@ -103,14 +113,18 @@ func reapSessions(w io.Writer, victims []model.Session, r collect.Reaper) error 
 		if res.Err != nil {
 			line += fmt.Sprintf(" (%v)", res.Err)
 		}
-		fmt.Fprintln(w, line)
+		if _, err := fmt.Fprintln(w, line); err != nil {
+			writeErr = errors.Join(writeErr, err)
+		}
 	}
 	sum := collect.Summarize(results)
-	fmt.Fprintf(w, "%s.\n", upperFirst(sum.String()))
-	if sum.Failed > 0 || sum.Survived > 0 {
-		return fmt.Errorf("%d session(s) could not be stopped", sum.Failed+sum.Survived)
+	if _, err := fmt.Fprintf(w, "%s.\n", upperFirst(sum.String())); err != nil {
+		writeErr = errors.Join(writeErr, err)
 	}
-	return nil
+	if sum.Failed > 0 || sum.Survived > 0 {
+		return errors.Join(fmt.Errorf("%d session(s) could not be stopped", sum.Failed+sum.Survived), writeErr)
+	}
+	return writeErr
 }
 
 // upperFirst capitalises the first byte of an ASCII sentence.
