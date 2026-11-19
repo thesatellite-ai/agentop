@@ -3,10 +3,10 @@
 package source
 
 import (
-	"path"
 	"strings"
 
-	"github.com/thesatellite-ai/agentop/internal/discover"
+	"github.com/ubgo/agentio"
+
 	"github.com/thesatellite-ai/agentop/internal/model"
 )
 
@@ -27,8 +27,8 @@ const (
 	markerRunbay     = "runbay"             // prefix of runbay's binaries: runbay-ptyd-<ver>, runbay-daemon, runbay
 )
 
-// Classify decides the Source for the process `pid`, given a pid->Proc index of
-// every process and the process's own cwd.
+// Classify decides the Source for self, given the process table it was read
+// from (agentio Host.Processes) and the process's own cwd.
 //
 // Signals (first match wins):
 //   - own command contains CMUX_CLAUDE_HOOK            -> cmux
@@ -40,32 +40,22 @@ const (
 //
 // Classification reflects who LAUNCHED the process. A cmux session whose cwd is
 // also an emdash workspace is still cmux — the emdash task name is attached as
-// enrichment elsewhere, not as the source.
-func Classify(pid int, index map[int]discover.Proc, cwd string) model.Source {
-	self, ok := index[pid]
-	if ok && strings.Contains(self.Command, markerCmuxHook) {
+// enrichment elsewhere, not as the source. agentio walks the parent chain
+// (Ancestors); which launcher a chain belongs to is agentop's knowledge.
+func Classify(self agentio.Process, table []agentio.Process, cwd string) model.Source {
+	if strings.Contains(self.CommandString(), markerCmuxHook) {
 		return model.SourceCmux
 	}
-	cur := pid
-	for hop := 0; hop < maxHops; hop++ {
-		p, ok := index[cur]
-		if !ok || p.PPID == 0 || p.PPID == cur {
-			break
-		}
-		parent, ok := index[p.PPID]
-		if !ok {
-			break
-		}
-		cmd := parent.Command
+	for _, parent := range agentio.Ancestors(table, self.PID, maxHops) {
+		cmd := parent.CommandString()
 		switch {
 		case strings.Contains(cmd, markerCmuxResume), containsWord(cmd, markerCmuxName):
 			return model.SourceCmux
 		case strings.Contains(cmd, markerEmdashLow), strings.Contains(cmd, markerEmdashCap):
 			return model.SourceEmdash
-		case isRunbay(cmd):
+		case isRunbay(parent):
 			return model.SourceRunbay
 		}
-		cur = p.PPID
 	}
 	if strings.Contains(cwd, markerEmdashWork) {
 		return model.SourceEmdash
@@ -78,9 +68,16 @@ func Classify(pid int, index map[int]discover.Proc, cwd string) model.Source {
 // ptyd --daemon` → `zsh -l` → agent). Only the executable's basename is
 // checked, so a command that merely mentions a runbay path (an ssh into a
 // runbay checkout) does not match.
-func isRunbay(cmd string) bool {
-	argv0, _, _ := strings.Cut(cmd, " ")
-	return strings.HasPrefix(path.Base(argv0), markerRunbay)
+func isRunbay(p agentio.Process) bool {
+	return strings.HasPrefix(agentio.ProcessBase(argv0(p)), markerRunbay)
+}
+
+// argv0 is the executable a row names: Argv[0], else Exe.
+func argv0(p agentio.Process) string {
+	if len(p.Argv) > 0 {
+		return p.Argv[0]
+	}
+	return p.Exe
 }
 
 // containsWord avoids matching "cmux" inside an unrelated longer token by

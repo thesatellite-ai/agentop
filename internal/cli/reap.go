@@ -2,6 +2,7 @@ package cli
 
 import (
 	"bufio"
+	"context"
 	"errors"
 	"fmt"
 	"io"
@@ -10,6 +11,7 @@ import (
 	"strings"
 
 	"github.com/spf13/cobra"
+
 	"github.com/thesatellite-ai/agentop/internal/collect"
 	"github.com/thesatellite-ai/agentop/internal/model"
 )
@@ -24,18 +26,28 @@ func newReapCmd() *cobra.Command {
 		Short: "Kill sessions idle past a threshold",
 		Long: `reap terminates agent sessions whose idle time is at least --idle days.
 
-Idle is measured from the session's controlling-tty I/O time (real activity),
-so it is trustworthy for every source. Restrict to one controller with
---source emdash|cmux|runbay|direct. A confirmation lists exactly what will die.
+Idle is the time since the session's last activity: the newer of its
+controlling-tty I/O and the activity time the agent itself records (Claude's
+session file), so it is trustworthy for every source. A session the agent
+reports busy is never idle, so a threshold reap never picks it. Restrict to
+one controller with --source emdash|cmux|runbay|direct. A confirmation lists exactly what will die.
 
-Each session gets SIGTERM, then up to 4s to exit; one still running after
-that gets SIGKILL. Right before each signal agentop re-reads the process and
-signals only when the pid still names the same session (same start time), so
-a pid that ended or was reused since the list is skipped and reported as
-"process changed or ended". Agent servers (claude mcp serve, codex app-server)
-and the npm codex launcher are not sessions and are never reaped.`,
+What to signal comes from the agent's stop plan (agentio): each session gets
+SIGTERM, then the agent's grace (4s for Claude and Codex) to exit; one still
+running after that gets SIGKILL. Right before each signal agentop re-reads the
+process table and signals only when the pid still names the same session
+(same start time), so a pid that ended or was reused since the list is skipped
+and reported as "process changed or ended". Agent servers (claude mcp serve,
+codex app-server) and the npm codex launcher are not sessions and are never
+listed or reaped; a Claude background session is refused with the claude
+command that stops it. When the agent knows the conversation, the command
+that resumes it is printed after the stop.`,
 		RunE: func(cmd *cobra.Command, args []string) error {
-			sessions, err := collect.Sessions()
+			c, err := collect.New()
+			if err != nil {
+				return err
+			}
+			sessions, err := c.Sessions(cmd.Context())
 			if err != nil {
 				return err
 			}
@@ -85,7 +97,7 @@ and the npm codex launcher are not sessions and are never reaped.`,
 					return err
 				}
 			}
-			return reapSessions(cmd.OutOrStdout(), victims, collect.NewReaper(collect.DefaultGrace))
+			return reapSessions(cmd.Context(), cmd.OutOrStdout(), victims, c.Reaper())
 		},
 	}
 	cmd.Flags().IntVar(&idleDays, "idle", model.DefaultReapIdleDays, "minimum idle days to reap")
@@ -94,24 +106,23 @@ and the npm codex launcher are not sessions and are never reaped.`,
 	return cmd
 }
 
-// reapSessions stops victims through r (the same path the TUI uses: SIGTERM,
-// grace, identity re-check, SIGKILL) and reports every session that was not
-// cleanly stopped. It returns an error when any session failed or survived,
-// joined with any error writing the report (the signals were already sent).
-func reapSessions(w io.Writer, victims []model.Session, r collect.Reaper) error {
+// reapSessions stops victims through r (the same path the TUI uses: the
+// agent's stop plan, SIGTERM, grace, identity re-check, SIGKILL), reports
+// every session that was not cleanly stopped, and prints the resume command
+// of each stopped session whose conversation the agent knows. It returns an
+// error when any session failed or survived, joined with any error writing
+// the report (the signals were already sent).
+func reapSessions(ctx context.Context, w io.Writer, victims []model.Session, r collect.Reaper) error {
 	targets := make([]collect.Target, len(victims))
 	for i, s := range victims {
 		targets[i] = collect.TargetOf(s)
 	}
-	results := r.Reap(targets)
+	results := r.Reap(ctx, targets)
 	var writeErr error
 	for _, res := range results {
-		if res.Outcome == collect.OutcomeStopped {
+		line := resultLine(res)
+		if line == "" {
 			continue
-		}
-		line := fmt.Sprintf("pid %d: %s", res.PID, res.Outcome)
-		if res.Err != nil {
-			line += fmt.Sprintf(" (%v)", res.Err)
 		}
 		if _, err := fmt.Fprintln(w, line); err != nil {
 			writeErr = errors.Join(writeErr, err)
@@ -125,6 +136,25 @@ func reapSessions(w io.Writer, victims []model.Session, r collect.Reaper) error 
 		return errors.Join(fmt.Errorf("%d session(s) could not be stopped", sum.Failed+sum.Survived), writeErr)
 	}
 	return writeErr
+}
+
+// resultLine is the report line for one result, "" for a clean stop with
+// nothing to resume.
+func resultLine(res collect.Result) string {
+	line := fmt.Sprintf("pid %d: %s", res.PID, res.Outcome)
+	switch {
+	case res.Reason != "":
+		line += fmt.Sprintf(" (%s)", res.Reason)
+	case res.Err != nil:
+		line += fmt.Sprintf(" (%v)", res.Err)
+	}
+	if res.Resume != "" {
+		return line + "; resume: " + res.Resume
+	}
+	if res.Outcome == collect.OutcomeStopped {
+		return ""
+	}
+	return line
 }
 
 // upperFirst capitalises the first byte of an ASCII sentence.

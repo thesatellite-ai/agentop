@@ -5,12 +5,21 @@
 package tui
 
 import (
+	"context"
+	"errors"
 	"fmt"
 	"os"
+	"slices"
 	"strings"
 
 	"github.com/gdamore/tcell/v2"
 	"github.com/rivo/tview"
+	"github.com/ubgo/agentio"
+	"github.com/ubgo/agentio/claude"
+	"github.com/ubgo/agentio/codex"
+	"github.com/ubgo/agentio/gemini"
+	"github.com/ubgo/agentio/opencode"
+	"github.com/ubgo/agentio/pi"
 
 	"github.com/thesatellite-ai/agentop/internal/collect"
 	"github.com/thesatellite-ai/agentop/internal/discover"
@@ -33,8 +42,8 @@ const (
 type group struct {
 	label string
 	kind  groupKind
-	src   model.Source    // set when kind == groupSource
-	agent model.AgentKind // set when kind == groupAgent
+	src   model.Source // set when kind == groupSource
+	agent agentio.ID   // set when kind == groupAgent
 	count int
 	mem   uint64
 }
@@ -84,14 +93,24 @@ type App struct {
 	filtering  bool // true while the quick-filter input has focus
 	populating bool // guards sidebar repopulation from firing onGroupChanged
 
-	// load produces the session list; collect.Sessions in production, a
+	// load produces the session list; Collector.Sessions in production, a
 	// fixture in tests so they never depend on what runs on the machine.
 	load func() ([]model.Session, error)
+	// reap stops targets; Collector.Reaper in production. Tests that reach
+	// it set a fake, so no real process is ever signalled.
+	reap func(targets []collect.Target) []collect.Result
 }
 
-// Run builds and runs the dashboard.
-func Run() error {
+// errNoLoader is returned by an App built without a session source.
+var errNoLoader = errors.New("tui: no session source")
+
+// Run builds and runs the dashboard on c: c lists the sessions and its
+// Reaper stops them.
+func Run(ctx context.Context, c *collect.Collector) error {
 	a := newApp()
+	a.load = func() ([]model.Session, error) { return c.Sessions(ctx) }
+	reaper := c.Reaper()
+	a.reap = func(targets []collect.Target) []collect.Result { return reaper.Reap(ctx, targets) }
 	a.buildLayout()
 	if err := a.reload(); err != nil {
 		return err
@@ -120,7 +139,8 @@ func newApp() *App {
 		selected:    map[int]bool{},
 		home:        home,
 		physMem:     discover.PhysicalMemory(),
-		load:        collect.Sessions,
+		load:        func() ([]model.Session, error) { return nil, errNoLoader },
+		reap:        func([]collect.Target) []collect.Result { return nil },
 	}
 }
 
@@ -203,10 +223,26 @@ func (a *App) reload() error {
 	return nil
 }
 
-// sourceOrder / agentOrder fix the sidebar ordering so the list is stable
-// across refreshes regardless of map iteration order.
+// sourceOrder fixes the sidebar ordering so the list is stable across
+// refreshes regardless of map iteration order.
 var sourceOrder = model.Sources
-var agentOrder = []model.AgentKind{model.AgentClaude, model.AgentCodex}
+
+// knownAgents is the sidebar order of the built-in agentio agents; any other
+// agent (a custom one) follows them in name order.
+var knownAgents = []agentio.ID{claude.ID, codex.ID, gemini.ID, pi.ID, opencode.ID}
+
+// agentOrder lists the agents present in counts: the built-ins in
+// knownAgents order, then the rest sorted by id.
+func agentOrder(counts map[agentio.ID]int) []agentio.ID {
+	var rest []agentio.ID
+	for id := range counts {
+		if !slices.Contains(knownAgents, id) {
+			rest = append(rest, id)
+		}
+	}
+	slices.Sort(rest)
+	return append(slices.Clone(knownAgents), rest...)
+}
 
 // computeGroups rebuilds the sidebar entries: an "All" reset, then a Sources
 // section and an Agents section (each preceded by a header), listing only the
@@ -214,8 +250,8 @@ var agentOrder = []model.AgentKind{model.AgentClaude, model.AgentCodex}
 // their agent group — the two are independent filter axes over the same set.
 func (a *App) computeGroups() {
 	var total uint64
-	srcCount, agtCount := map[model.Source]int{}, map[model.AgentKind]int{}
-	srcMem, agtMem := map[model.Source]uint64{}, map[model.AgentKind]uint64{}
+	srcCount, agtCount := map[model.Source]int{}, map[agentio.ID]int{}
+	srcMem, agtMem := map[model.Source]uint64{}, map[agentio.ID]uint64{}
 	for _, s := range a.all {
 		srcCount[s.Source]++
 		srcMem[s.Source] += s.RSSBytes
@@ -239,7 +275,7 @@ func (a *App) computeGroups() {
 	}
 
 	agtSection := false
-	for _, ag := range agentOrder {
+	for _, ag := range agentOrder(agtCount) {
 		if agtCount[ag] == 0 {
 			continue
 		}
@@ -458,8 +494,32 @@ func (a *App) refreshDetail() {
 		lbl("memory"), hex(theme.Text), mem(s.RSSBytes), lbl("idle"), hex(idleColor(s)), s.IdleLabel(), hex(theme.Muted), active)
 	fmt.Fprintf(&b, " %s %s    %s %s\n", lbl("task"), task, lbl("started"), sinceLabel(s.StartedAt))
 	fmt.Fprintf(&b, " %s %s%s[-]\n", lbl("cwd"), hex(theme.Text), homePath(s.Cwd, a.home))
+	fmt.Fprintf(&b, " %s %s\n", lbl("session"), sessionLabel(s, a.home))
 	fmt.Fprintf(&b, " %s %s%s[-]", lbl("command"), hex(theme.Muted), trunc(firstLine(s.Command), commandPreviewLen))
 	a.detail.SetText(b.String())
+}
+
+// sessionLabel describes what the agent recorded about the session: the
+// conversation id with how it was tied to the process, the agent status,
+// version and home. A dash when the agent recorded nothing.
+func sessionLabel(s model.Session, home string) string {
+	var parts []string
+	if s.ConversationID != "" {
+		parts = append(parts, fmt.Sprintf("%s%s[-] %s(%s)[-]", hex(theme.Text), s.ConversationID, hex(theme.Muted), s.Join))
+	}
+	if s.Status != agentio.SessionStatusUnknown {
+		parts = append(parts, s.Status.String())
+	}
+	if s.Version != "" {
+		parts = append(parts, "v"+s.Version)
+	}
+	if s.Home != "" {
+		parts = append(parts, fmt.Sprintf("%shome %s[-]", hex(theme.Muted), homePath(s.Home, home)))
+	}
+	if len(parts) == 0 {
+		return "—"
+	}
+	return strings.Join(parts, "  ")
 }
 
 func firstLine(s string) string {
