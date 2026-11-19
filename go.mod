@@ -6,6 +6,13 @@ require (
 	github.com/gdamore/tcell/v2 v2.13.10
 	github.com/rivo/tview v0.42.0
 	github.com/spf13/cobra v1.10.2
+	github.com/ubgo/agentio v0.1.1-0.20261119153340-5067a4467896
+	github.com/ubgo/agentio/builtin v0.1.1-0.20261119153340-5067a4467896
+	github.com/ubgo/agentio/claude v0.1.1-0.20261119153340-5067a4467896
+	github.com/ubgo/agentio/codex v0.1.1-0.20261119153340-5067a4467896
+	github.com/ubgo/agentio/gemini v0.1.1-0.20261119153340-5067a4467896
+	github.com/ubgo/agentio/opencode v0.0.0-20261119153340-5067a4467896
+	github.com/ubgo/agentio/pi v0.1.1-0.20261119153340-5067a4467896
 	modernc.org/sqlite v1.52.0
 )
 
@@ -21,13 +28,6 @@ require (
 	github.com/remyoudompheng/bigfft v0.0.0-20230129092748-24d4a6f8daec // indirect
 	github.com/rivo/uniseg v0.4.7 // indirect
 	github.com/spf13/pflag v1.0.9 // indirect
-	github.com/ubgo/agentio v0.1.1-0.20261119143536-d49765a43950 // indirect
-	github.com/ubgo/agentio/builtin v0.1.1-0.20261119143536-d49765a43950 // indirect
-	github.com/ubgo/agentio/claude v0.1.1-0.20261119143536-d49765a43950 // indirect
-	github.com/ubgo/agentio/codex v0.1.1-0.20261119143536-d49765a43950 // indirect
-	github.com/ubgo/agentio/gemini v0.1.1-0.20261119143536-d49765a43950 // indirect
-	github.com/ubgo/agentio/opencode v0.0.0-20261119143536-d49765a43950 // indirect
-	github.com/ubgo/agentio/pi v0.1.1-0.20261119143536-d49765a43950 // indirect
 	golang.org/x/sys v0.42.0 // indirect
 	golang.org/x/term v0.37.0 // indirect
 	golang.org/x/text v0.31.0 // indirect

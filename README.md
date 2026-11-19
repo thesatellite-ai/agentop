@@ -26,7 +26,7 @@ So I built `agentop`: one fast view of every agent across every tool, and the on
 - **Discovers** every running agent session across cmux, emdash, runbay, and plain terminals by inspecting the process tree. No integration, no setup.
 - **Shows** memory, real idle time, agent, source, the owning task, and what the agent itself recorded (conversation id, busy or idle, version, home) for each one, in a live `htop`-style dashboard.
 - **Filters** by source or agent in the sidebar (with per-group memory bars), and by a fuzzy search across the text columns.
-- **Reaps** the idle ones, either select-and-kill in the TUI or `agentop reap --idle 2` from the shell. It follows the agent's own stop plan: `SIGTERM` (graceful), then `SIGKILL` for a session still running after the agent's grace period (4 seconds for Claude and Codex), and a confirmation that shows exactly what dies and how much you reclaim. After a stop it prints the command that resumes the conversation when the agent knows it.
+- **Reaps** the idle ones, either select-and-kill in the TUI or `agentop reap --idle 2` from the shell. It follows the agent's own stop plan: `SIGTERM` (graceful), then `SIGKILL` for a session still running after the agent's grace period (4 seconds for Claude and Codex), and a confirmation that shows exactly what dies and how much you reclaim. After a stop it prints the line that resumes the conversation when the agent knows it (with `CLAUDE_CONFIG_DIR` for a non-default Claude home, never a token).
 
 Killing frees only the process. emdash restores the conversation when you reopen the task, and cmux and Claude resume from disk. You lose memory pressure, not work.
 
@@ -50,7 +50,7 @@ agentop works with **Claude Code**, **OpenAI Codex**, **Gemini CLI**, **pi** and
 - **runbay**: sessions started by runbay (their shell runs under runbay's pty daemon)
 - **direct**: agents started straight from a normal terminal (iTerm, Ghostty, tmux, VS Code)
 
-Only conversation processes are listed. Agent servers and launchers are not sessions and are never listed or reaped: `claude mcp serve`, `codex app-server` and `codex mcp-server`, and the npm Codex launcher (`node …/codex.js`, whose native `codex` child is the session). The Claude desktop app, its bundled CLI and helpers, `claude-in-chrome`, Claude's shell snapshots and `npm install` of an agent are not agents at all.
+Only conversation processes are listed. Agent servers, launchers and one-shot agent commands are not sessions and are never listed or reaped: `claude mcp serve` and other `claude mcp` commands, `codex app-server`, `codex mcp-server` and `codex mcp …`, and the npm Codex launcher (`node …/codex.js`, whose native `codex` child is the session). The Claude desktop app, its bundled CLI and helpers, `claude-in-chrome`, Claude's shell snapshots and `npm install` of an agent are not agents at all.
 
 ## Install
 

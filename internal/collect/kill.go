@@ -73,9 +73,11 @@ type Result struct {
 	Err     error
 	// Reason is the plan's refusal, set with OutcomeRefused.
 	Reason string
-	// Resume brings the conversation back, when the agent knows its id;
-	// set with OutcomeStopped and OutcomeForced.
-	Resume *agentio.Command
+	// Resume is the line a person types to bring the conversation back
+	// (agentio StopPlan.ResumeLine: the home variable for a non-default
+	// home, never a token); "" when the agent does not know the
+	// conversation. Set with OutcomeStopped and OutcomeForced.
+	Resume string
 }
 
 // Gone reports whether the target no longer runs as the listed process.
@@ -94,6 +96,10 @@ type Classifier func(p agentio.Process) (agentio.ProcessInfo, bool)
 // p is not an agent conversation process any more.
 type Planner func(ctx context.Context, p agentio.Process, table []agentio.Process) (plan agentio.StopPlan, ok bool)
 
+// AliveChecker re-checks recorded processes with one process-table read
+// (agentio Host.ProcessesAlive), one answer per ref in order.
+type AliveChecker func(ctx context.Context, refs []agentio.ProcessRef) ([]agentio.Liveness, error)
+
 // Signaler delivers sig to pid.
 type Signaler func(pid int, sig syscall.Signal) error
 
@@ -102,11 +108,15 @@ type Signaler func(pid int, sig syscall.Signal) error
 // the Reaper sends the signals: graceful signal, wait up to the grace, force
 // the survivors. Before every signal it re-reads the process table and
 // signals only a pid that still names the same live process (same start
-// time, still the agent process it was). Table, Classify, Plan, Signal,
-// Sleep and Now are injectable so tests use fake process tables and never signal a
+// time, still the agent process it was). Table, Alive, Classify, Plan,
+// Signal, Sleep and Now are injectable so tests use fake process tables and never signal a
 // real process.
 type Reaper struct {
-	Table    TableReader
+	Table TableReader
+	// Alive polls the targets while they get their grace: a target is done
+	// once agentio says every pid of it ended. It is never the check before
+	// a signal; that is the exact re-check on a fresh Table read.
+	Alive    AliveChecker
 	Classify Classifier
 	Plan     Planner
 	Signal   Signaler
@@ -123,6 +133,7 @@ type Reaper struct {
 func (c *Collector) Reaper() Reaper {
 	return Reaper{
 		Table:    c.table,
+		Alive:    c.Host.ProcessesAlive,
 		Classify: func(p agentio.Process) (agentio.ProcessInfo, bool) { return agentio.ClassifyProcess(c.Agents, p) },
 		Plan:     c.plan,
 		Signal:   syscall.Kill,
@@ -238,7 +249,7 @@ func (r Reaper) Reap(ctx context.Context, targets []Target) []Result {
 		res := &results[j.idx]
 		if !r.refresh(j, table) {
 			res.Outcome = OutcomeStopped // exited during the grace period
-			res.Resume = j.plan.Resume
+			res.Resume = j.plan.ResumeLine()
 			continue
 		}
 		if !j.plan.Force {
@@ -343,27 +354,28 @@ func (r Reaper) signalJob(j *job, res *Result, sig syscall.Signal) bool {
 	return sent
 }
 
-// waitGone polls jobs, each for up to limit(job). A job whose pids are all
-// no longer the same process gets outcome gone; the jobs still running when
-// their limit passes are returned. A failed table read is treated as
-// "unknown" for that round and polling continues.
+// waitGone polls jobs, each for up to limit(job), with agentio's batch
+// liveness check (one table read per round). A job whose pids all ended
+// gets outcome gone; the jobs still running when their limit passes are
+// returned. A pid agentio cannot confirm either way (LivenessUnknown) or a
+// failed read counts as still running: waiting longer is always safe, and
+// the exact re-check before SIGKILL decides what is signalled.
 func (r Reaper) waitGone(ctx context.Context, results []Result, jobs []*job, limit func(*job) time.Duration, gone Outcome) []*job {
 	poll := max(r.Poll, time.Millisecond)
 	began := r.Now()
 	var over []*job
 	for len(jobs) > 0 {
-		if table, err := r.Table(ctx); err == nil {
-			var still []*job
-			for _, j := range jobs {
-				if r.refresh(j, table) {
-					still = append(still, j)
-					continue
-				}
-				results[j.idx].Outcome = gone
-				results[j.idx].Resume = j.plan.Resume
+		r.markEnded(ctx, jobs)
+		var still []*job
+		for _, j := range jobs {
+			if j.running() {
+				still = append(still, j)
+				continue
 			}
-			jobs = still
+			results[j.idx].Outcome = gone
+			results[j.idx].Resume = j.plan.ResumeLine()
 		}
+		jobs = still
 		waited := r.Now().Sub(began)
 		var next []*job
 		for _, j := range jobs {
@@ -380,6 +392,43 @@ func (r Reaper) waitGone(ctx context.Context, results []Result, jobs []*job, lim
 		r.Sleep(poll)
 	}
 	return over
+}
+
+// markEnded asks agentio once about every live pid of jobs and marks the
+// ones that ended (gone, or the pid now has another start time).
+func (r Reaper) markEnded(ctx context.Context, jobs []*job) {
+	var refs []agentio.ProcessRef
+	var procs []*proc
+	for _, j := range jobs {
+		for k := range j.procs {
+			if p := &j.procs[k]; !p.gone {
+				refs = append(refs, agentio.ProcessRef{PID: p.pid, Start: p.start})
+				procs = append(procs, p)
+			}
+		}
+	}
+	if len(refs) == 0 {
+		return
+	}
+	alive, err := r.Alive(ctx, refs)
+	if err != nil || len(alive) != len(refs) {
+		return // unknown this round: keep waiting
+	}
+	for i, l := range alive {
+		if l == agentio.LivenessEnded {
+			procs[i].gone = true
+		}
+	}
+}
+
+// running reports whether any pid of j is not known to have ended.
+func (j *job) running() bool {
+	for _, p := range j.procs {
+		if !p.gone {
+			return true
+		}
+	}
+	return false
 }
 
 // graceOf is the plan's grace, DefaultGrace when it names none.

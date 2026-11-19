@@ -11,7 +11,6 @@ import (
 	"strings"
 
 	"github.com/spf13/cobra"
-	"github.com/ubgo/agentio"
 
 	"github.com/thesatellite-ai/agentop/internal/collect"
 	"github.com/thesatellite-ai/agentop/internal/model"
@@ -149,22 +148,11 @@ func resultLine(res collect.Result) string {
 	case res.Err != nil:
 		line += fmt.Sprintf(" (%v)", res.Err)
 	}
-	if res.Resume != nil {
-		return line + "; resume: " + commandLine(*res.Resume)
+	if res.Resume != "" {
+		return line + "; resume: " + res.Resume
 	}
 	if res.Outcome == collect.OutcomeStopped {
 		return ""
-	}
-	return line
-}
-
-// commandLine renders a command as one line: the binary and its arguments,
-// plus the folder it must run in. The command's environment is never printed
-// (it is where a token would live).
-func commandLine(c agentio.Command) string {
-	line := strings.Join(append([]string{c.Path}, c.Args...), " ")
-	if c.Dir != "" {
-		line += " (in " + c.Dir + ")"
 	}
 	return line
 }

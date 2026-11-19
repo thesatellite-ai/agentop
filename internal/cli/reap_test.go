@@ -47,6 +47,7 @@ func testReaper(t *testing.T, table map[int]agentio.Process, signal collect.Sign
 		}
 		return out, nil
 	}
+	r.Alive = agentio.Host{Processes: tableLister(r.Table)}.ProcessesAlive
 	r.Signal = signal
 	var slept time.Duration
 	r.Sleep = func(d time.Duration) { slept += d }
@@ -55,6 +56,14 @@ func testReaper(t *testing.T, table map[int]agentio.Process, signal collect.Sign
 	r.KillWait = 200 * time.Millisecond
 	return r
 }
+
+// tableLister serves a TableReader as an agentio.ProcessLister, so agentio's
+// batch liveness check reads the same fake table.
+type tableLister collect.TableReader
+
+func (l tableLister) Processes(ctx context.Context) ([]agentio.Process, error) { return l(ctx) }
+
+func (l tableLister) Cwd(context.Context, int) (string, error) { return "", errors.New("no cwd") }
 
 // TestReapSessionsUsesGraceThenKill runs the CLI reap path on a fake process
 // table: one session exits on SIGTERM, one ignores it and needs SIGKILL, one
@@ -114,7 +123,7 @@ func TestReapSessionsReportsFailure(t *testing.T) {
 
 func TestResultLine(t *testing.T) {
 	t.Parallel()
-	resume := &agentio.Command{Path: "claude", Args: []string{"--resume", aliceConv}, Dir: "/work/alice", Env: []string{"SECRET=never-printed"}}
+	resume := "cd /work/alice && CLAUDE_CONFIG_DIR=/home/alice/.claude-work claude --resume " + aliceConv
 	for _, tc := range []struct {
 		name string
 		res  collect.Result
@@ -122,7 +131,7 @@ func TestResultLine(t *testing.T) {
 	}{
 		{"clean stop", collect.Result{Target: collect.Target{PID: 1}, Outcome: collect.OutcomeStopped}, ""},
 		{"stop with resume", collect.Result{Target: collect.Target{PID: 1}, Outcome: collect.OutcomeStopped, Resume: resume},
-			"pid 1: stopped; resume: claude --resume " + aliceConv + " (in /work/alice)"},
+			"pid 1: stopped; resume: " + resume},
 		{"refused", collect.Result{Target: collect.Target{PID: 2}, Outcome: collect.OutcomeRefused, Reason: "stop it with the agent's command: claude stop x"},
 			"pid 2: refused (stop it with the agent's command: claude stop x)"},
 		{"failed", collect.Result{Target: collect.Target{PID: 3}, Outcome: collect.OutcomeFailed, Err: syscall.EPERM},
@@ -130,9 +139,6 @@ func TestResultLine(t *testing.T) {
 	} {
 		if got := resultLine(tc.res); got != tc.want {
 			t.Errorf("%s: %q, want %q", tc.name, got, tc.want)
-		}
-		if strings.Contains(resultLine(tc.res), "never-printed") {
-			t.Errorf("%s: a command's environment was printed", tc.name)
 		}
 	}
 }

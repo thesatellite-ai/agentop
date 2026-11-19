@@ -1,11 +1,13 @@
 package collect
 
 import (
+	"context"
 	"encoding/json"
 	"os"
 	"path/filepath"
 	"strconv"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -45,12 +47,50 @@ func row(pid, ppid int, start time.Time, command string) agentio.Process {
 // Nothing in it reads or signals a real process.
 func testCollector(t *testing.T, procs *agenttest.FakeProcesses) *Collector {
 	t.Helper()
-	h := agenttest.NewHost(t, agenttest.WithProcesses(procs), agenttest.WithNow(func() time.Time { return now }))
+	h := agenttest.NewHost(t, agenttest.WithProcesses(&lockedProcesses{f: procs}), agenttest.WithNow(func() time.Time { return now }))
 	agents, err := builtin.New(h)
 	if err != nil {
 		t.Fatal(err)
 	}
 	return &Collector{Host: h, Agents: agents.All()}
+}
+
+// lockedProcesses serialises calls to an agenttest.FakeProcesses: the fake
+// counts its calls without a lock, and Sessions looks cwds up from several
+// goroutines (as it does on the real, concurrency-safe process lister).
+type lockedProcesses struct {
+	mu sync.Mutex
+	f  *agenttest.FakeProcesses
+}
+
+var (
+	_ agentio.ProcessLister         = (*lockedProcesses)(nil)
+	_ agentio.ProcessEnvReader      = (*lockedProcesses)(nil)
+	_ agentio.ProcessEnvBatchReader = (*lockedProcesses)(nil)
+)
+
+func (l *lockedProcesses) Processes(ctx context.Context) ([]agentio.Process, error) {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	return l.f.Processes(ctx)
+}
+
+func (l *lockedProcesses) Cwd(ctx context.Context, pid int) (string, error) {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	return l.f.Cwd(ctx, pid)
+}
+
+func (l *lockedProcesses) Env(ctx context.Context, pid int) ([]string, error) {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	return l.f.Env(ctx, pid)
+}
+
+func (l *lockedProcesses) EnvBatch(ctx context.Context, pids []int) (map[int][]string, error) {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	return l.f.EnvBatch(ctx, pids)
 }
 
 // pidFile is the part of Claude's sessions/<pid>.json the tests write.
