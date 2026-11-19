@@ -1,5 +1,5 @@
 // Package collect orchestrates the discovery pipeline:
-// discover -> classify agent -> resolve cwd -> classify source -> enrich
+// discover -> classify agent (sessions only) -> resolve cwd -> classify source -> enrich
 // (emdash) -> compute idle -> rank.
 package collect
 
@@ -28,10 +28,12 @@ func Sessions() ([]model.Session, error) {
 		index[p.PID] = p
 	}
 
-	// Filter to agent processes.
+	// Filter to agent conversation processes. Agent servers and launchers
+	// (`claude mcp serve`, `codex app-server`, the npm codex launcher) are not
+	// sessions: they are never listed, so they can never be reaped.
 	var agents []discover.Proc
 	for _, p := range procs {
-		if agent.IsAgent(p.Command) {
+		if agent.IsSession(p.Command) {
 			agents = append(agents, p)
 		}
 	}

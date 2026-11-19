@@ -1,9 +1,11 @@
 // Package discover lists OS processes and resolves their working directories.
-// macOS-only in v1 (shells out to ps + lsof); Linux (/proc) is future work.
+// It runs on macOS and Linux by shelling out to ps and lsof, so on Linux both
+// must be installed (minimal images often lack lsof; cwd is then empty).
 package discover
 
 import (
 	"bufio"
+	"errors"
 	"os/exec"
 	"strconv"
 	"strings"
@@ -29,10 +31,54 @@ const lstartLayout = "Mon Jan _2 15:04:05 2006"
 func ListProcs() ([]Proc, error) {
 	// Field order is fixed; lstart is exactly 5 space-delimited tokens, so we
 	// can parse positionally and treat the remainder as the command.
-	out, err := exec.Command("ps", "-axo", "pid=,ppid=,rss=,tty=,lstart=,command=").Output()
+	out, err := exec.Command("ps", "-axo", psColumns).Output()
 	if err != nil {
 		return nil, err
 	}
+	return parseProcs(out)
+}
+
+// psColumns is the ps output format both reads use; parseProcLine depends on
+// this exact order.
+const psColumns = "pid=,ppid=,rss=,tty=,lstart=,command="
+
+// psNoMatchExit is ps's exit status when none of the -p pids exist (BSD and
+// procps alike). It is not an error for LookupProcs: every pid has ended.
+const psNoMatchExit = 1
+
+// LookupProcs returns the current rows for pids, keyed by pid. A pid that no
+// longer exists is absent from the map. Kill paths call it right before each
+// signal to confirm a pid still names the process that was listed (same start
+// time), so a reused pid is never signalled.
+func LookupProcs(pids []int) (map[int]Proc, error) {
+	rows := map[int]Proc{}
+	if len(pids) == 0 {
+		return rows, nil
+	}
+	list := make([]string, len(pids))
+	for i, p := range pids {
+		list[i] = strconv.Itoa(p)
+	}
+	out, err := exec.Command("ps", "-o", psColumns, "-p", strings.Join(list, ",")).Output()
+	if err != nil {
+		var exit *exec.ExitError
+		if errors.As(err, &exit) && exit.ExitCode() == psNoMatchExit && strings.TrimSpace(string(out)) == "" {
+			return rows, nil
+		}
+		return nil, err
+	}
+	procs, err := parseProcs(out)
+	if err != nil {
+		return nil, err
+	}
+	for _, p := range procs {
+		rows[p.PID] = p
+	}
+	return rows, nil
+}
+
+// parseProcs parses ps output in psColumns order, skipping unparsable lines.
+func parseProcs(out []byte) ([]Proc, error) {
 	var procs []Proc
 	sc := bufio.NewScanner(strings.NewReader(string(out)))
 	sc.Buffer(make([]byte, 0, 1024*1024), 8*1024*1024)

@@ -4,7 +4,6 @@ import (
 	"fmt"
 	"strconv"
 	"strings"
-	"time"
 
 	"github.com/gdamore/tcell/v2"
 	"github.com/rivo/tview"
@@ -108,7 +107,7 @@ func (a *App) chooseSort(f SortField) {
 	} else {
 		a.sortField = f
 		// sensible default direction: idle & memory show biggest first
-		a.sortAsc = !(f == SortIdle || f == SortMem)
+		a.sortAsc = f != SortIdle && f != SortMem
 	}
 	a.applyFilterSort()
 	a.refreshTable()
@@ -142,7 +141,7 @@ func (a *App) openKillModal(pids []int) {
 		}
 	}
 	modal := tview.NewModal().
-		SetText(fmt.Sprintf("Kill %d session(s) with SIGTERM,\nreclaim ~%s?", len(pids), mem(total))).
+		SetText(fmt.Sprintf("Kill %d session(s) (SIGTERM, SIGKILL after %s),\nreclaim ~%s?", len(pids), collect.DefaultGrace, mem(total))).
 		AddButtons([]string{btnCancel, btnKill}).
 		SetDoneFunc(func(idx int, label string) {
 			if label == btnKill {
@@ -155,10 +154,6 @@ func (a *App) openKillModal(pids []int) {
 	a.pages.AddPage("kill", modal, true, true)
 	a.app.SetFocus(modal)
 }
-
-// killGrace is how long Reap waits for a SIGTERM'd session to flush and exit
-// before escalating to SIGKILL. Generous enough for Claude to checkpoint.
-const killGrace = 4 * time.Second
 
 // doKill reaps the given pids. The reap blocks until the kernel confirms each
 // process is gone (Reap polls, retries with SIGKILL on stragglers), so it runs
@@ -173,17 +168,34 @@ func (a *App) doKill(pids []int) {
 	}
 	a.setStatus(fmt.Sprintf("reaping %d session(s)…", len(pids)))
 
+	// Targets carry the start time seen at the last refresh, so the reaper
+	// can refuse a pid that ended or was reused since then.
+	targets := a.targetsFor(pids)
 	go func() {
-		survivors := collect.Reap(pids, killGrace)
+		results := collect.Reap(targets, collect.DefaultGrace)
 		a.app.QueueUpdateDraw(func() {
 			_ = a.reload()
-			if len(survivors) > 0 {
-				a.setStatus(fmt.Sprintf("reaped %d, %d survived (could not kill)", len(pids)-len(survivors), len(survivors)))
-			} else {
-				a.setStatus(fmt.Sprintf("reaped %d session(s)", len(pids)))
-			}
+			a.setStatus(collect.Summarize(results).String())
 		})
 	}()
+}
+
+// targetsFor maps pids to kill targets from the last refresh. A pid that is
+// not in the list any more has no known start time, so the reaper skips it.
+func (a *App) targetsFor(pids []int) []collect.Target {
+	byPID := make(map[int]model.Session, len(a.all))
+	for _, s := range a.all {
+		byPID[s.PID] = s
+	}
+	targets := make([]collect.Target, len(pids))
+	for i, p := range pids {
+		if s, ok := byPID[p]; ok {
+			targets[i] = collect.TargetOf(s)
+		} else {
+			targets[i] = collect.Target{PID: p}
+		}
+	}
+	return targets
 }
 
 // --- reap by idle ----------------------------------------------------------
@@ -251,7 +263,7 @@ func (a *App) openHelp() {
 		fmt.Sprintf(" %sg / G[-]      jump to top / bottom", ac),
 		fmt.Sprintf(" %sspace[-]      select / deselect row", ac),
 		fmt.Sprintf(" %sa / c[-]      select all / clear selection", ac),
-		fmt.Sprintf(" %sx / Del[-]    kill selected (or cursor), SIGTERM", ac),
+		fmt.Sprintf(" %sx / Del[-]    kill selected or cursor (TERM, then KILL)", ac),
 		fmt.Sprintf(" %si[-]          reap by idle; acts on the current view (group + filter)", ac),
 		fmt.Sprintf(" %s/[-]          fuzzy filter (agent/src/task/cwd); Esc clears", ac),
 		fmt.Sprintf(" %ss[-]          sort picker (toggle dir on same field)", ac),

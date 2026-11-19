@@ -17,7 +17,11 @@ func makeFixtureDB(t *testing.T) string {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer db.Close()
+	t.Cleanup(func() {
+		if err := db.Close(); err != nil {
+			t.Errorf("close fixture db: %v", err)
+		}
+	})
 	stmts := []string{
 		`CREATE TABLE workspaces (id TEXT PRIMARY KEY, path TEXT)`,
 		`CREATE TABLE tasks (name TEXT, status TEXT, workspace_id TEXT, last_interacted_at TEXT)`,

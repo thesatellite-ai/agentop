@@ -83,6 +83,10 @@ type App struct {
 	modalOpen  bool
 	filtering  bool // true while the quick-filter input has focus
 	populating bool // guards sidebar repopulation from firing onGroupChanged
+
+	// load produces the session list; collect.Sessions in production, a
+	// fixture in tests so they never depend on what runs on the machine.
+	load func() ([]model.Session, error)
 }
 
 // Run builds and runs the dashboard.
@@ -116,6 +120,7 @@ func newApp() *App {
 		selected:    map[int]bool{},
 		home:        home,
 		physMem:     discover.PhysicalMemory(),
+		load:        collect.Sessions,
 	}
 }
 
@@ -184,7 +189,7 @@ func (a *App) buildLayout() {
 
 // reload re-runs the discovery pipeline and repaints every pane.
 func (a *App) reload() error {
-	sessions, err := collect.Sessions()
+	sessions, err := a.load()
 	if err != nil {
 		return err
 	}
@@ -200,7 +205,7 @@ func (a *App) reload() error {
 
 // sourceOrder / agentOrder fix the sidebar ordering so the list is stable
 // across refreshes regardless of map iteration order.
-var sourceOrder = []model.Source{model.SourceEmdash, model.SourceCmux, model.SourceDirect}
+var sourceOrder = model.Sources
 var agentOrder = []model.AgentKind{model.AgentClaude, model.AgentCodex}
 
 // computeGroups rebuilds the sidebar entries: an "All" reset, then a Sources

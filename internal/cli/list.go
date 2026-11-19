@@ -23,8 +23,8 @@ func newListCmd() *cobra.Command {
 				enc.SetIndent("", "  ")
 				return enc.Encode(sessions)
 			}
-			fmt.Fprint(cmd.OutOrStdout(), renderTable(sessions))
-			return nil
+			_, err = fmt.Fprint(cmd.OutOrStdout(), renderTable(sessions))
+			return err
 		},
 	}
 	cmd.Flags().BoolVar(&asJSON, "json", false, "output machine-readable JSON")

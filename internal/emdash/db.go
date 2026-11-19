@@ -9,6 +9,7 @@ package emdash
 
 import (
 	"database/sql"
+	"errors"
 	"os"
 	"path/filepath"
 	"sort"
@@ -37,10 +38,7 @@ func DBPath() string {
 	matches, _ := filepath.Glob(filepath.Join(dir, "emdash*.db"))
 	// keep only the base db files (skip -wal / -shm, which Glob won't match
 	// against "*.db" anyway), newest schema-generation last.
-	var dbs []string
-	for _, m := range matches {
-		dbs = append(dbs, m)
-	}
+	dbs := append([]string(nil), matches...)
 	if len(dbs) == 0 {
 		return ""
 	}
@@ -61,14 +59,17 @@ func LoadMap() (map[string]Info, error) {
 
 // loadFrom reads a specific emdash DB file. Split out from LoadMap so it can be
 // tested against a fixture DB without depending on the host's emdash install.
-func loadFrom(path string) (map[string]Info, error) {
+//
+// Close errors are joined into the returned error; the map is still returned,
+// and the caller treats enrichment as best-effort.
+func loadFrom(path string) (out map[string]Info, err error) {
 	// Read-only + immutable avoids touching the WAL while emdash holds it.
 	dsn := "file:" + path + "?mode=ro&immutable=1&_pragma=busy_timeout(2000)"
 	db, err := sql.Open("sqlite", dsn)
 	if err != nil {
 		return map[string]Info{}, err
 	}
-	defer db.Close()
+	defer func() { err = errors.Join(err, db.Close()) }()
 
 	rows, err := db.Query(`
 		SELECT w.path,
@@ -81,9 +82,9 @@ func loadFrom(path string) (map[string]Info, error) {
 	if err != nil {
 		return map[string]Info{}, err
 	}
-	defer rows.Close()
+	defer func() { err = errors.Join(err, rows.Close()) }()
 
-	out := make(map[string]Info)
+	out = make(map[string]Info)
 	for rows.Next() {
 		var path, name, status, last string
 		if err := rows.Scan(&path, &name, &status, &last); err != nil {
