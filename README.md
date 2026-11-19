@@ -4,7 +4,7 @@
 
 # agentop
 
-**htop for AI coding agents.** It finds every running Claude Code and OpenAI Codex session across cmux, emdash, and plain terminals. For each one you see how much memory it holds, how long it has been idle, and which task it belongs to. Then you kill the idle ones and get your RAM back. The agent's conversation is preserved; only the process dies.
+**htop for AI coding agents.** It finds every running Claude Code and OpenAI Codex session across cmux, emdash, runbay, and plain terminals. For each one you see how much memory it holds, how long it has been idle, and which task it belongs to. Then you kill the idle ones and get your RAM back. The agent's conversation is preserved; only the process dies.
 
 ## Why I built this
 
@@ -23,10 +23,10 @@ So I built `agentop`: one fast view of every agent across every tool, and the on
 
 ## What it does
 
-- **Discovers** every running agent session across cmux, emdash, and plain terminals by inspecting the process tree. No integration, no setup.
+- **Discovers** every running agent session across cmux, emdash, runbay, and plain terminals by inspecting the process tree. No integration, no setup.
 - **Shows** memory, real idle time, agent, source, and the owning task for each one, in a live `htop`-style dashboard.
 - **Filters** by source or agent in the sidebar (with per-group memory bars), and by a fuzzy search across the text columns.
-- **Reaps** the idle ones, either select-and-kill in the TUI or `agentop reap --idle 2` from the shell. It uses `SIGTERM` (graceful) and a confirmation that shows exactly what dies and how much you reclaim.
+- **Reaps** the idle ones, either select-and-kill in the TUI or `agentop reap --idle 2` from the shell. It uses `SIGTERM` (graceful), then `SIGKILL` for a session still running after a 4 second grace period, and a confirmation that shows exactly what dies and how much you reclaim.
 
 Killing frees only the process. emdash restores the conversation when you reopen the task, and cmux and Claude resume from disk. You lose memory pressure, not work.
 
@@ -47,7 +47,10 @@ agentop works with **Claude Code** and **OpenAI Codex** today, and more agents c
 
 - **emdash**: tasks running in [emdash](https://github.com/generalaction/emdash) git worktrees
 - **cmux**: sessions in [cmux](https://github.com/) terminal panes
+- **runbay**: sessions started by runbay (their shell runs under runbay's pty daemon)
 - **direct**: agents started straight from a normal terminal (iTerm, Ghostty, tmux, VS Code)
+
+Only conversation processes are listed. Agent servers and launchers are not sessions and are never listed or reaped: `claude mcp serve` (and other `claude mcp` commands), `codex app-server` and `codex mcp-server`, and the npm Codex launcher (`node …/codex.js`, whose native `codex` child is the session).
 
 ## Install
 
@@ -86,14 +89,14 @@ agentop                              # interactive TUI (default)
 agentop list                         # one-shot table to stdout
 agentop list --json                  # machine-readable JSON
 agentop reap --idle 2                # kill any session idle >= 2 days (asks first)
-agentop reap --idle 2 --source cmux  # restrict to one source (emdash|cmux|direct)
+agentop reap --idle 2 --source cmux  # restrict to one source (emdash|cmux|runbay|direct)
 agentop reap --idle 7 --yes          # skip the confirmation prompt
 agentop version                      # print version
 ```
 
 ### The TUI
 
-A master-detail dashboard. The **sidebar** filters by two independent axes, source (emdash, cmux, direct) and agent (claude, codex), each with live counts and memory bars. The **table** shows the selected filter and sorts by any column. The **detail pane** follows the cursor with full process info.
+A master-detail dashboard. The **sidebar** filters by two independent axes, source (emdash, cmux, runbay, direct) and agent (claude, codex), each with live counts and memory bars. The **table** shows the selected filter and sorts by any column. The **detail pane** follows the cursor with full process info.
 
 | Key | Action |
 |---|---|
@@ -118,13 +121,15 @@ The three kill paths scope differently. This matters, so it is worth being expli
 |---|---|
 | **TUI `i`** (reap by idle) | the **current view**: the active sidebar filter plus the active `/` quick-filter, narrowed to sessions idle past the threshold you enter |
 | **TUI `x`** (kill) | the rows you **selected** with `space`, or the cursor row if none are selected |
-| **CLI `agentop reap --idle N`** | **all sources** by default, since the CLI has no sidebar; narrow it with `--source emdash\|cmux\|direct` |
+| **CLI `agentop reap --idle N`** | **all sources** by default, since the CLI has no sidebar; narrow it with `--source emdash\|cmux\|runbay\|direct` |
 
 So in the TUI, reap follows what you are looking at. If the **emdash** group is selected, `i` reaps **only emdash** sessions and leaves cmux and direct untouched. Add a `/sync` filter on top and `i` reaps only the emdash sessions whose agent, source, task, or cwd matches "sync". The reap dialog's title shows the live scope (for example `reap idle · scope: emdash · /sync`), and the confirmation always lists the exact count and the RAM to be reclaimed before anything dies.
 
 ### Safe by design
 
-- **SIGTERM first**, so the agent shuts down gracefully and flushes its state. Only a session that ignores SIGTERM and is still alive after a short grace period is escalated to SIGKILL — a kill should not silently no-op.
+- **SIGTERM first**, so the agent shuts down gracefully and flushes its state. agentop then waits up to 4 seconds; only a session still running after that is escalated to SIGKILL, so a kill does not silently no-op. The TUI (`x`, `i`) and `agentop reap` use this same path.
+- **Never the wrong process.** Right before SIGTERM, and again right before any SIGKILL, agentop re-reads the process and signals only when the pid still names the same agent session it listed (same start time). A pid that ended or was reused by another process since the list is skipped and reported as "process changed or ended".
+- **Servers are not sessions.** `claude mcp serve`, `codex app-server` and the Codex launcher are never listed, so they cannot be reaped.
 - **A confirmation gate** on every kill shows the count and the RAM you will reclaim.
 - **Read-only until you act.** Discovery never touches anything; the only write is the signal you ask for.
 
@@ -136,7 +141,7 @@ In the rare case where a session has no terminal to read from, idle falls back t
 
 ## Platform support
 
-macOS and Linux. agentop introspects processes with `ps` and `lsof`, ends them with `SIGTERM` (both Unix-only), and reads terminal device timestamps through OS-specific syscalls. Windows uses a different console model and is out of scope.
+macOS and Linux. agentop introspects processes with `ps` and `lsof`, ends them with `SIGTERM` and, after the grace period, `SIGKILL` (Unix-only), and reads terminal device timestamps through OS-specific syscalls. Windows uses a different console model and is out of scope.
 
 ## Branding
 

@@ -2,6 +2,18 @@
 
 All notable changes to agentop are documented here. The format follows [Keep a Changelog](https://keepachangelog.com/), and the project aims for [Semantic Versioning](https://semver.org/).
 
+## [Unreleased]
+
+### Fixed
+
+- Kill safety: right before SIGTERM, and again before any SIGKILL, agentop re-reads each process and signals it only when the pid still names the same agent session it listed (same start time). A pid that ended or was reused since the list is skipped and reported as "process changed or ended".
+- `agentop reap` now uses the same kill path as the TUI: SIGTERM, a 4 second grace period, an identity re-check, then SIGKILL for survivors. It used to send SIGTERM only and return without waiting. It prints any session that was not cleanly stopped and exits non-zero if one could not be stopped.
+- `claude mcp serve`, `codex app-server` / `mcp-server` and the npm Codex launcher are no longer listed as sessions, so they can no longer be reaped.
+
+### Added
+
+- runbay source: sessions started by runbay are labelled `runbay` instead of `direct` (detected from runbay's pty daemon in the parent chain). `reap --source runbay` selects them.
+
 ## [0.1.4] - 2026-06-30
 
 ### Fixed

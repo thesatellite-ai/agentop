@@ -53,6 +53,8 @@ func sourceColor(s model.Source) tcell.Color {
 		return tcell.NewHexColor(0x73DACA) // teal
 	case model.SourceCmux:
 		return tcell.NewHexColor(0xBB9AF7) // violet
+	case model.SourceRunbay:
+		return tcell.NewHexColor(0xFF007C) // magenta
 	case model.SourceDirect:
 		return tcell.NewHexColor(0xE0AF68) // amber
 	default:
