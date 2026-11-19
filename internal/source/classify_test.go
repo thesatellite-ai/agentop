@@ -1,28 +1,46 @@
 package source
 
 import (
+	"slices"
 	"strconv"
+	"strings"
 	"testing"
 
-	"github.com/thesatellite-ai/agentop/internal/discover"
+	"github.com/ubgo/agentio"
+
 	"github.com/thesatellite-ai/agentop/internal/model"
 )
 
-// index builds a pid->Proc map from (pid, ppid, command) triples.
-func index(rows ...[3]string) map[int]discover.Proc {
-	m := map[int]discover.Proc{}
+// index builds a process table from (pid, ppid, command) triples, shaped the
+// way agentio's darwin reader fills a row: Argv split on spaces, Exe =
+// argv[0], CommandLine the raw command column.
+func index(rows ...[3]string) []agentio.Process {
+	var table []agentio.Process
 	for _, r := range rows {
 		pid, _ := strconv.Atoi(r[0])
 		ppid, _ := strconv.Atoi(r[1])
-		m[pid] = discover.Proc{PID: pid, PPID: ppid, Command: r[2]}
+		argv := strings.Fields(r[2])
+		p := agentio.Process{PID: pid, PPID: ppid, Argv: argv, CommandLine: r[2]}
+		if len(argv) > 0 {
+			p.Exe = argv[0]
+		}
+		table = append(table, p)
 	}
-	return m
+	return table
+}
+
+// row returns pid's row in table (zero when absent).
+func row(table []agentio.Process, pid int) agentio.Process {
+	if i := slices.IndexFunc(table, func(p agentio.Process) bool { return p.PID == pid }); i >= 0 {
+		return table[i]
+	}
+	return agentio.Process{PID: pid}
 }
 
 func TestClassify(t *testing.T) {
 	cases := []struct {
 		name string
-		idx  map[int]discover.Proc
+		idx  []agentio.Process
 		pid  int
 		cwd  string
 		want model.Source
@@ -127,7 +145,8 @@ func TestClassify(t *testing.T) {
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			if got := Classify(tc.pid, tc.idx, tc.cwd); got != tc.want {
+			t.Parallel()
+			if got := Classify(row(tc.idx, tc.pid), tc.idx, tc.cwd); got != tc.want {
 				t.Errorf("Classify = %q, want %q", got, tc.want)
 			}
 		})

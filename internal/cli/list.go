@@ -14,7 +14,11 @@ func newListCmd() *cobra.Command {
 		Use:   "list",
 		Short: "List running agent sessions (one-shot, no TUI)",
 		RunE: func(cmd *cobra.Command, args []string) error {
-			sessions, err := collect.Sessions()
+			c, err := collect.New()
+			if err != nil {
+				return err
+			}
+			sessions, err := c.Sessions(cmd.Context())
 			if err != nil {
 				return err
 			}

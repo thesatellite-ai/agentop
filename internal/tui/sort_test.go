@@ -9,9 +9,9 @@ import (
 
 func sample() []model.Session {
 	return []model.Session{
-		{PID: 3, Agent: model.AgentCodex, Source: model.SourceDirect, Task: "z", Cwd: "/c", RSSBytes: 30, Idle: 3 * time.Hour},
-		{PID: 1, Agent: model.AgentClaude, Source: model.SourceCmux, Task: "a", Cwd: "/a", RSSBytes: 10, Idle: time.Hour},
-		{PID: 2, Agent: model.AgentClaude, Source: model.SourceEmdash, Task: "m", Cwd: "/b", RSSBytes: 20, Idle: 2 * time.Hour},
+		{PID: 3, Agent: "codex", Source: model.SourceDirect, Task: "z", Cwd: "/c", RSSBytes: 30, Idle: 3 * time.Hour},
+		{PID: 1, Agent: "claude", Source: model.SourceCmux, Task: "a", Cwd: "/a", RSSBytes: 10, Idle: time.Hour},
+		{PID: 2, Agent: "claude", Source: model.SourceEmdash, Task: "m", Cwd: "/b", RSSBytes: 20, Idle: 2 * time.Hour},
 	}
 }
 

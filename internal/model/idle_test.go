@@ -3,6 +3,8 @@ package model
 import (
 	"testing"
 	"time"
+
+	"github.com/ubgo/agentio"
 )
 
 // fixed reference time so every case is deterministic.
@@ -20,6 +22,12 @@ func TestComputeIdle(t *testing.T) {
 		wantProxy bool
 	}{
 		{"tty wins", Session{TTYActive: tty, LastActive: db, StartedAt: start}, 2 * time.Hour, false},
+		{"newer agent activity beats an older tty", Session{TTYActive: tty, AgentActive: now.Add(-10 * time.Minute), StartedAt: start}, 10 * time.Minute, false},
+		{"newer tty beats older agent activity", Session{TTYActive: tty, AgentActive: now.Add(-5 * time.Hour), StartedAt: start}, 2 * time.Hour, false},
+		{"agent activity without a tty", Session{AgentActive: now.Add(-3 * time.Hour), LastActive: db, StartedAt: start}, 3 * time.Hour, false},
+		{"busy agent is never idle", Session{Status: agentio.SessionBusy, TTYActive: now.Add(-9 * 24 * time.Hour), StartedAt: start}, 0, false},
+		{"waiting agent keeps its idle", Session{Status: agentio.SessionWaiting, TTYActive: tty, StartedAt: start}, 2 * time.Hour, false},
+		{"activity in the future clamps to zero", Session{AgentActive: now.Add(time.Minute)}, 0, false},
 		{"db fallback when no tty", Session{LastActive: db, StartedAt: start}, 2 * 24 * time.Hour, false},
 		{"process-age proxy when neither", Session{StartedAt: start}, 6 * 24 * time.Hour, true},
 		{"zero everything", Session{}, 0, true},
@@ -50,6 +58,9 @@ func TestIdleLabel(t *testing.T) {
 		{3 * 24 * time.Hour, false, "3d"},
 		{5 * 24 * time.Hour, true, "5d*"}, // proxy marker
 		{0, true, "-"},                    // no marker on the dash
+	}
+	if got := (&Session{Status: agentio.SessionBusy}).IdleLabel(); got != "busy" {
+		t.Errorf("busy label = %q", got)
 	}
 	for _, tc := range cases {
 		s := Session{Idle: tc.idle, IdleProxy: tc.proxy}
@@ -89,6 +100,10 @@ func TestLastSeen(t *testing.T) {
 	dbOnly := Session{LastActive: db}
 	if got := dbOnly.LastSeen(); !got.Equal(db) {
 		t.Errorf("LastSeen should fall back to db, got %v", got)
+	}
+	agentNewer := Session{TTYActive: tty, AgentActive: db}
+	if got := agentNewer.LastSeen(); !got.Equal(db) {
+		t.Errorf("LastSeen should take the newer agent activity, got %v", got)
 	}
 	empty := Session{}
 	if got := empty.LastSeen(); !got.IsZero() {
