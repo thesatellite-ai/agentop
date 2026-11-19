@@ -6,13 +6,13 @@ require (
 	github.com/gdamore/tcell/v2 v2.13.10
 	github.com/rivo/tview v0.42.0
 	github.com/spf13/cobra v1.10.2
-	github.com/ubgo/agentio v0.1.1-0.20261119160347-126155f2944c
-	github.com/ubgo/agentio/builtin v0.1.1-0.20261119160347-126155f2944c
-	github.com/ubgo/agentio/claude v0.1.1-0.20261119160347-126155f2944c
-	github.com/ubgo/agentio/codex v0.1.1-0.20261119160347-126155f2944c
-	github.com/ubgo/agentio/gemini v0.1.1-0.20261119160347-126155f2944c
-	github.com/ubgo/agentio/opencode v0.0.0-20261119160347-126155f2944c
-	github.com/ubgo/agentio/pi v0.1.1-0.20261119160347-126155f2944c
+	github.com/ubgo/agentio v0.1.1
+	github.com/ubgo/agentio/builtin v0.1.1
+	github.com/ubgo/agentio/claude v0.1.1
+	github.com/ubgo/agentio/codex v0.1.1
+	github.com/ubgo/agentio/gemini v0.1.1
+	github.com/ubgo/agentio/opencode v0.1.0
+	github.com/ubgo/agentio/pi v0.1.1
 	modernc.org/sqlite v1.52.0
 )
 

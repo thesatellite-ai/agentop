@@ -4,6 +4,8 @@ All notable changes to agentop are documented here. The format follows [Keep a C
 
 ## [Unreleased]
 
+## [0.1.5] - 2026-11-19
+
 ### Fixed
 
 - Kill safety: right before SIGTERM, and again before any SIGKILL, agentop re-reads each process and signals it only when the pid still names the same agent session it listed (same start time). A pid that ended or was reused since the list is skipped and reported as "process changed or ended".
@@ -12,7 +14,7 @@ All notable changes to agentop are documented here. The format follows [Keep a C
 
 ### Changed
 
-- Process listing, agent matching, process-to-conversation joins and stop planning now come from [agentio](https://github.com/ubgo/agentio). agentop's own `ps` parser, `lsof` pool and agent detectors are gone; it keeps the TUI, the CLI, launcher labels and the signal loop. On Linux processes are read from `/proc`, so `ps` and `lsof` are no longer needed there.
+- Process listing, agent matching, process-to-conversation joins and stop planning now come from [agentio](https://github.com/ubgo/agentio) (v0.1.1; `opencode` v0.1.0). agentop's own `ps` parser, `lsof` pool and agent detectors are gone; it keeps the TUI, the CLI, launcher labels and the signal loop. On Linux processes are read from `/proc`, so `ps` and `lsof` are no longer needed there.
 - Idle takes the newer of terminal I/O and the agent's own activity time (Claude's session file). A session the agent reports busy shows `busy` and is never picked by a threshold reap.
 - Kills follow the agent's stop plan (targets, graceful signal, grace, whether forcing is safe). A Claude background session is refused with the `claude stop <id>` command that ends it, since its supervisor respawns a killed worker. `agentop reap` prints the resume line of each stopped session when the agent knows the conversation, naming the home for a non-default Claude home.
 
@@ -46,5 +48,7 @@ First public release.
 - Fuzzy quick-filter (`/`): live subsequence match across the agent, source, task, and cwd columns, combined with the sidebar filter. The table title shows the active query and match count.
 - Single static binary (pure-Go SQLite, `CGO_ENABLED=0`) for macOS and Linux, distributed via Homebrew tap, install script, and `go install`.
 
+[Unreleased]: https://github.com/thesatellite-ai/agentop/compare/v0.1.5...HEAD
+[0.1.5]: https://github.com/thesatellite-ai/agentop/releases/tag/v0.1.5
 [0.1.4]: https://github.com/thesatellite-ai/agentop/releases/tag/v0.1.4
 [0.1.3]: https://github.com/thesatellite-ai/agentop/releases/tag/v0.1.3
