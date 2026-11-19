@@ -39,6 +39,10 @@ func fixtureTable() []agentio.Process {
 		row(200, 1, t0, "claude mcp serve"),
 		row(201, 1, t0, "codex app-server --listen unix://x"),
 		row(202, 1, t0, "/opt/homebrew/bin/codex mcp-server"),
+		row(210, 1, t0, "codex mcp serve"),
+		row(211, 1, t0, "/opt/homebrew/bin/codex mcp list"),
+		row(212, 1, t0, "claude mcp list"),
+		row(213, 1, t0, "/Users/alice/.local/bin/claude mcp add bob-tools -- npx bob-tools"),
 		row(203, 1, t0, "/Applications/Claude.app/Contents/MacOS/Claude"),
 		row(204, 1, t0, "/x/claude-in-chrome/server"),
 		row(205, 1, t0, "/Users/alice/Library/Application Support/Claude/claude-code/2.1.300/claude --output-format stream-json"),
@@ -101,6 +105,12 @@ func TestSessions(t *testing.T) {
 		if !ok || s.Agent != w.agent || s.Source != w.source {
 			t.Errorf("pid %d = %+v (listed %v), want %s via %s", pid, s, ok, w.agent, w.source)
 		}
+	}
+
+	// One cwd lookup per listed session and no more: the batch join reuses
+	// Process.Cwd instead of looking it up again.
+	if fp.CwdCalls != len(want) {
+		t.Errorf("cwd lookups = %d, want %d (one per session)", fp.CwdCalls, len(want))
 	}
 
 	alice := byPID[102]

@@ -58,6 +58,12 @@ func TestMatcherParity(t *testing.T) {
 
 		// Rows the safety-fixes branch handled by not matching them.
 		{"claude shell snapshot", "/bin/zsh -c source /Users/alice/.claude/shell-snapshots/snapshot-zsh-1.sh 2>/dev/null || true", "", false},
+		// One-shot agent commands (agentio ProcessCommand), never sessions:
+		// the old matcher hid every `claude mcp` and `codex mcp` row.
+		{"claude mcp list", "claude mcp list", "claude", false},
+		{"claude mcp add", "claude mcp add bob-tools -- npx bob-tools", "claude", false},
+		{"codex mcp serve", "codex mcp serve", "codex", false},
+		{"codex mcp list", "/opt/homebrew/bin/codex mcp list", "codex", false},
 		{"claude desktop bundled CLI", "/Users/alice/Library/Application Support/Claude/claude-code/2.1.300/claude --output-format stream-json", "", false},
 	} {
 		info, ok := agentio.ClassifyProcess(agents, row(100, 1, t0, tc.command))

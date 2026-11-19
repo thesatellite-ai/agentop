@@ -3,6 +3,8 @@ package collect
 import (
 	"context"
 	"errors"
+	"os"
+	"path/filepath"
 	"slices"
 	"strings"
 	"syscall"
@@ -46,6 +48,18 @@ func (f *fakeOS) table(context.Context) ([]agentio.Process, error) {
 	return out, nil
 }
 
+// Processes makes f an agentio.ProcessLister, so agentio's batch liveness
+// check (Host.ProcessesAlive) reads the same scripted table.
+func (f *fakeOS) Processes(ctx context.Context) ([]agentio.Process, error) { return f.table(ctx) }
+
+// Cwd is unused by the reaper; it completes agentio.ProcessLister.
+func (f *fakeOS) Cwd(context.Context, int) (string, error) { return "", errors.New("no cwd") }
+
+// alive is agentio's real batch liveness check on f's table.
+func (f *fakeOS) alive(ctx context.Context, refs []agentio.ProcessRef) ([]agentio.Liveness, error) {
+	return agentio.Host{Processes: f}.ProcessesAlive(ctx, refs)
+}
+
 func (f *fakeOS) signal(pid int, sig syscall.Signal) error {
 	f.signals = append(f.signals, sent{pid, sig})
 	if f.onSignal != nil {
@@ -71,6 +85,7 @@ func (f *fakeOS) reaper(t *testing.T) Reaper {
 	t.Helper()
 	r := testCollector(t, &agenttest.FakeProcesses{}).Reaper()
 	r.Table = f.table
+	r.Alive = f.alive
 	r.Signal = f.signal
 	r.Sleep = func(d time.Duration) { f.sleptTotal += d }
 	r.Now = func() time.Time { return t0.Add(f.sleptTotal) }
@@ -186,6 +201,24 @@ func TestReaper(t *testing.T) {
 		{
 			name:    "excluded kind at signal time: codex mcp-server",
 			procs:   procs(row(10, 1, t0, "/opt/homebrew/bin/codex mcp-server")),
+			targets: []Target{{10, t0}},
+			want:    []Outcome{OutcomeChanged},
+		},
+		{
+			name:    "excluded kind at signal time: codex mcp serve",
+			procs:   procs(row(10, 1, t0, "codex mcp serve")),
+			targets: []Target{{10, t0}},
+			want:    []Outcome{OutcomeChanged},
+		},
+		{
+			name:    "excluded kind at signal time: codex mcp list",
+			procs:   procs(row(10, 1, t0, "/opt/homebrew/bin/codex mcp list")),
+			targets: []Target{{10, t0}},
+			want:    []Outcome{OutcomeChanged},
+		},
+		{
+			name:    "excluded kind at signal time: claude mcp list",
+			procs:   procs(row(10, 1, t0, "claude mcp list")),
 			targets: []Target{{10, t0}},
 			want:    []Outcome{OutcomeChanged},
 		},
@@ -471,6 +504,35 @@ func TestCollectorPlan(t *testing.T) {
 	}
 }
 
+// TestResumeLineNonDefaultHome checks the printed resume line of a session
+// in a non-default Claude home names that home (CLAUDE_CONFIG_DIR), so it
+// resumes where the conversation lives, and never carries another env value.
+func TestResumeLineNonDefaultHome(t *testing.T) {
+	t.Parallel()
+	alice := row(40, 1, t0, "claude --resume "+aliceConv)
+	fp := &agenttest.FakeProcesses{List: []agentio.Process{alice}, Cwds: map[int]string{40: "/work/alice"}}
+	c := testCollector(t, fp)
+	work := filepath.Join(c.Host.UserHome, ".claude-work")
+	if err := os.MkdirAll(work, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	fp.Envs = map[int][]string{40: {"HOME=" + c.Host.UserHome, "CLAUDE_CONFIG_DIR=" + work, "ALICE_TOKEN=never-printed"}}
+
+	plan, ok := c.plan(context.Background(), alice, fp.List)
+	if !ok {
+		t.Fatal("no plan for alice")
+	}
+	line := plan.ResumeLine()
+	for _, want := range []string{"CLAUDE_CONFIG_DIR=", work, "--resume " + aliceConv} {
+		if !strings.Contains(line, want) {
+			t.Errorf("resume line %q missing %q", line, want)
+		}
+	}
+	if strings.Contains(line, "never-printed") {
+		t.Errorf("resume line %q carries an env value it must not", line)
+	}
+}
+
 // TestReaperReportsResume checks a stopped session carries the agent's resume
 // command, so the user can bring the conversation back.
 func TestReaperReportsResume(t *testing.T) {
@@ -480,11 +542,11 @@ func TestReaperReportsResume(t *testing.T) {
 	c := testCollector(t, fp)
 	f := &fakeOS{procs: procs(alice), onSignal: exitOn(syscall.SIGTERM)}
 	r := c.Reaper()
-	r.Table, r.Signal, r.Poll, r.KillWait = f.table, f.signal, testPoll, testKillWait
+	r.Table, r.Alive, r.Signal, r.Poll, r.KillWait = f.table, f.alive, f.signal, testPoll, testKillWait
 	r.Sleep = func(d time.Duration) { f.sleptTotal += d }
 	r.Now = func() time.Time { return t0.Add(f.sleptTotal) }
 	got := r.Reap(context.Background(), []Target{{30, t0}})
-	if got[0].Outcome != OutcomeStopped || got[0].Resume == nil || !slices.Contains(got[0].Resume.Args, aliceConv) {
+	if got[0].Outcome != OutcomeStopped || !strings.Contains(got[0].Resume, "claude --resume "+aliceConv) {
 		t.Fatalf("result = %+v, want stopped with a resume of %s", got[0], aliceConv)
 	}
 }
@@ -500,7 +562,7 @@ func TestReaperBackgroundSessionRefused(t *testing.T) {
 	writePidFile(t, c.Host.UserHome, pidFile{PID: 31, SessionID: bobConv, Cwd: "/work/bob", StartedAt: t0.UnixMilli(), Kind: string(agentio.SessionBackground)})
 	f := &fakeOS{procs: procs(bob)}
 	r := c.Reaper()
-	r.Table, r.Signal = f.table, f.signal
+	r.Table, r.Alive, r.Signal = f.table, f.alive, f.signal
 	got := r.Reap(context.Background(), []Target{{31, t0}})
 	if got[0].Outcome != OutcomeRefused || !strings.Contains(got[0].Reason, "stop "+bobConv) {
 		t.Fatalf("result = %+v, want refused with claude stop", got[0])

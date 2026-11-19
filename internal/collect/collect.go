@@ -1,7 +1,7 @@
-// Package collect orchestrates the discovery pipeline on agentio:
-// one process-table read -> classify agent (sessions only) -> resolve cwd and
-// what the agent recorded -> classify launcher -> enrich (emdash) -> compute
-// idle -> rank. It also owns the kill path (kill.go), which takes agentio's
+// Package collect orchestrates the discovery pipeline on agentio: one
+// process-table read -> classify agent (sessions only) -> resolve cwds -> one
+// batch read of what each agent recorded -> classify launcher -> enrich
+// (emdash) -> compute idle -> rank. It also owns the kill path (kill.go), which takes agentio's
 // stop plan as input and sends the signals itself.
 package collect
 
@@ -21,11 +21,9 @@ import (
 	"github.com/thesatellite-ai/agentop/internal/source"
 )
 
-// enrichWorkers bounds the concurrent per-session reads: a cwd lookup (lsof
-// on darwin) and the agent's own session files. There can be 25+ agent
-// processes and each read is a process spawn or a few file reads, so they
-// run in parallel.
-const enrichWorkers = 12
+// cwdWorkers bounds the concurrent cwd lookups (an lsof spawn per pid on
+// darwin). There can be 25+ agent processes, so they run in parallel.
+const cwdWorkers = 12
 
 // Collector reads agent sessions through agentio. Every input (process
 // table, homes, clock, emdash DB, tty activity) is a field, so tests run it
@@ -75,9 +73,10 @@ func (c *Collector) Sessions(ctx context.Context) ([]model.Session, error) {
 	}
 
 	// Keep agent conversation processes only. agentio classifies agent
-	// servers and launchers (`claude mcp serve`, `codex app-server`, the npm
-	// codex launcher) as non-session kinds: they are never listed, so they
-	// can never be reaped.
+	// servers, launchers and one-shot commands (`claude mcp serve`, `claude
+	// mcp list`, `codex mcp …`, `codex app-server`, the npm codex launcher)
+	// as non-session kinds: they are never listed, so they can never be
+	// reaped.
 	type row struct {
 		p    agentio.Process
 		info agentio.ProcessInfo
@@ -96,35 +95,55 @@ func (c *Collector) Sessions(ctx context.Context) ([]model.Session, error) {
 		}
 	}
 
-	now := c.now()
-	sessions := make([]model.Session, len(rows))
+	// Cwds in parallel (lsof per pid on darwin), stored on the rows so the
+	// agent readers below never look them up again.
 	var wg sync.WaitGroup
-	sem := make(chan struct{}, enrichWorkers)
-	for i, r := range rows {
+	sem := make(chan struct{}, cwdWorkers)
+	for i := range rows {
 		wg.Add(1)
 		sem <- struct{}{}
 		go func() {
 			defer wg.Done()
 			defer func() { <-sem }()
-			sessions[i] = c.session(ctx, r.p, r.info, table, emap, now)
+			if cwd, err := c.Host.Processes.Cwd(ctx, rows[i].p.PID); err == nil {
+				rows[i].p.Cwd = cwd
+			}
 		}()
 	}
 	wg.Wait()
+
+	// What each agent recorded about its processes, in one batch read per
+	// agent. The join is best effort: a session the agent recorded nothing
+	// about (or whose files cannot be read) is still listed without it, so a
+	// failed read is dropped and the sessions found are kept.
+	procs := make([]agentio.Process, len(rows))
+	for i, r := range rows {
+		procs[i] = r.p
+	}
+	joins, _ := agentio.FindProcessSessions(ctx, c.Agents, procs)
+
+	now := c.now()
+	sessions := make([]model.Session, len(rows))
+	for i, r := range rows {
+		ps, found := joins[r.p.PID]
+		sessions[i] = c.session(r.p, r.info, ps, found, table, emap, now)
+	}
 
 	Rank(sessions)
 	return sessions, nil
 }
 
-// session builds one Session from its process row: cwd, what the agent
-// recorded about the process (agentio ProcessSession), launcher, emdash
-// task and idle.
-func (c *Collector) session(ctx context.Context, p agentio.Process, info agentio.ProcessInfo, table []agentio.Process, emap map[string]emdash.Info, now time.Time) model.Session {
+// session builds one Session from its process row (cwd already filled),
+// what the agent recorded about the process (agentio ProcessSession, when
+// found), launcher, emdash task and idle.
+func (c *Collector) session(p agentio.Process, info agentio.ProcessInfo, ps agentio.ProcessSession, found bool, table []agentio.Process, emap map[string]emdash.Info, now time.Time) model.Session {
 	s := model.Session{
 		PID:       p.PID,
 		PPID:      p.PPID,
 		Agent:     info.Agent,
 		Kind:      info.Kind,
 		RSSBytes:  p.RSS,
+		Cwd:       p.Cwd,
 		Command:   p.CommandString(),
 		TTY:       p.TTY,
 		StartedAt: p.Start,
@@ -132,12 +151,7 @@ func (c *Collector) session(ctx context.Context, p agentio.Process, info agentio
 	if c.TTYActivity != nil {
 		s.TTYActive = c.TTYActivity(p.TTY)
 	}
-	if cwd, err := c.Host.Processes.Cwd(ctx, p.PID); err == nil {
-		s.Cwd = cwd
-	}
-	// The join is best effort: a session the agent recorded nothing about
-	// (or whose files cannot be read) is still listed, without these facts.
-	if ps, found, err := agentio.FindProcessSession(ctx, c.Agents, p); err == nil && found {
+	if found {
 		applyProcessSession(&s, ps)
 	}
 	s.Source = source.Classify(p, table, s.Cwd)
