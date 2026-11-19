@@ -4,7 +4,7 @@
 
 # agentop
 
-**htop for AI coding agents.** It finds every running Claude Code and OpenAI Codex session across cmux, emdash, runbay, and plain terminals. For each one you see how much memory it holds, how long it has been idle, and which task it belongs to. Then you kill the idle ones and get your RAM back. The agent's conversation is preserved; only the process dies.
+**htop for AI coding agents.** It finds every running Claude Code, OpenAI Codex, Gemini CLI, pi and opencode session across cmux, emdash, runbay, and plain terminals. For each one you see how much memory it holds, how long it has been idle, and which task it belongs to. Then you kill the idle ones and get your RAM back. The agent's conversation is preserved; only the process dies.
 
 ## Why I built this
 
@@ -24,9 +24,9 @@ So I built `agentop`: one fast view of every agent across every tool, and the on
 ## What it does
 
 - **Discovers** every running agent session across cmux, emdash, runbay, and plain terminals by inspecting the process tree. No integration, no setup.
-- **Shows** memory, real idle time, agent, source, and the owning task for each one, in a live `htop`-style dashboard.
+- **Shows** memory, real idle time, agent, source, the owning task, and what the agent itself recorded (conversation id, busy or idle, version, home) for each one, in a live `htop`-style dashboard.
 - **Filters** by source or agent in the sidebar (with per-group memory bars), and by a fuzzy search across the text columns.
-- **Reaps** the idle ones, either select-and-kill in the TUI or `agentop reap --idle 2` from the shell. It uses `SIGTERM` (graceful), then `SIGKILL` for a session still running after a 4 second grace period, and a confirmation that shows exactly what dies and how much you reclaim.
+- **Reaps** the idle ones, either select-and-kill in the TUI or `agentop reap --idle 2` from the shell. It follows the agent's own stop plan: `SIGTERM` (graceful), then `SIGKILL` for a session still running after the agent's grace period (4 seconds for Claude and Codex), and a confirmation that shows exactly what dies and how much you reclaim. After a stop it prints the line that resumes the conversation when the agent knows it (with `CLAUDE_CONFIG_DIR` for a non-default Claude home, never a token).
 
 Killing frees only the process. emdash restores the conversation when you reopen the task, and cmux and Claude resume from disk. You lose memory pressure, not work.
 
@@ -43,14 +43,14 @@ Killing frees only the process. emdash restores the conversation when you reopen
 
 ## Supported agents and sources
 
-agentop works with **Claude Code** and **OpenAI Codex** today, and more agents can be added. It groups each session by the controller that launched it:
+agentop works with **Claude Code**, **OpenAI Codex**, **Gemini CLI**, **pi** and **opencode**. Agent knowledge (which process is which agent, which conversation it serves, how to stop it without losing it) comes from [agentio](https://github.com/ubgo/agentio), so a new agent there is a new agent here. agentop groups each session by the controller that launched it:
 
 - **emdash**: tasks running in [emdash](https://github.com/generalaction/emdash) git worktrees
 - **cmux**: sessions in [cmux](https://github.com/) terminal panes
 - **runbay**: sessions started by runbay (their shell runs under runbay's pty daemon)
 - **direct**: agents started straight from a normal terminal (iTerm, Ghostty, tmux, VS Code)
 
-Only conversation processes are listed. Agent servers and launchers are not sessions and are never listed or reaped: `claude mcp serve` (and other `claude mcp` commands), `codex app-server` and `codex mcp-server`, and the npm Codex launcher (`node …/codex.js`, whose native `codex` child is the session).
+Only conversation processes are listed. Agent servers, launchers and one-shot agent commands are not sessions and are never listed or reaped: `claude mcp serve` and other `claude mcp` commands, `codex app-server`, `codex mcp-server` and `codex mcp …`, and the npm Codex launcher (`node …/codex.js`, whose native `codex` child is the session). The Claude desktop app, its bundled CLI and helpers, `claude-in-chrome`, Claude's shell snapshots and `npm install` of an agent are not agents at all.
 
 ## Install
 
@@ -80,7 +80,7 @@ cd agentop
 task build      # builds ./bin/agentop  (or: go build -o bin/agentop .)
 ```
 
-Requires macOS or Linux, and uses the system `ps` and `lsof`. The binary is a single static file (pure-Go SQLite, `CGO_ENABLED=0`) with no runtime dependencies.
+Requires macOS or Linux. On macOS it reads processes with the system `ps` and `lsof`; on Linux it reads `/proc` directly, so minimal images without `ps` or `lsof` work. The binary is a single static file (pure-Go SQLite, `CGO_ENABLED=0`) with no runtime dependencies.
 
 ## Usage
 
@@ -96,7 +96,7 @@ agentop version                      # print version
 
 ### The TUI
 
-A master-detail dashboard. The **sidebar** filters by two independent axes, source (emdash, cmux, runbay, direct) and agent (claude, codex), each with live counts and memory bars. The **table** shows the selected filter and sorts by any column. The **detail pane** follows the cursor with full process info.
+A master-detail dashboard. The **sidebar** filters by two independent axes, source (emdash, cmux, runbay, direct) and agent (claude, codex, gemini, pi, opencode), each with live counts and memory bars. The **table** shows the selected filter and sorts by any column. The **detail pane** follows the cursor with full process info and what the agent recorded about the session: conversation id (and how it was tied to the process: `exact` from the agent's own pid file, `argv` from a resume id on the command line), status, version and home.
 
 | Key | Action |
 |---|---|
@@ -127,21 +127,24 @@ So in the TUI, reap follows what you are looking at. If the **emdash** group is 
 
 ### Safe by design
 
-- **SIGTERM first**, so the agent shuts down gracefully and flushes its state. agentop then waits up to 4 seconds; only a session still running after that is escalated to SIGKILL, so a kill does not silently no-op. The TUI (`x`, `i`) and `agentop reap` use this same path.
-- **Never the wrong process.** Right before SIGTERM, and again right before any SIGKILL, agentop re-reads the process and signals only when the pid still names the same agent session it listed (same start time). A pid that ended or was reused by another process since the list is skipped and reported as "process changed or ended".
+- **The agent decides what to signal.** agentio's stop plan names the pids (for Gemini CLI, the conversation process and its relaunch parent), the graceful signal, the grace period and whether forcing is safe. agentop sends the signals itself; agentio never does.
+- **SIGTERM first**, so the agent shuts down gracefully and flushes its state. agentop then waits for the plan's grace (4 seconds for Claude and Codex); only a session still running after that is escalated to SIGKILL, so a kill does not silently no-op. The TUI (`x`, `i`) and `agentop reap` use this same path.
+- **Never the wrong process.** Right before SIGTERM, and again right before any SIGKILL, agentop re-reads the process table and signals only when the pid still names the same agent session it listed (same start time, still the same agent process). A pid that ended or was reused by another process since the list is skipped and reported as "process changed or ended".
 - **Servers are not sessions.** `claude mcp serve`, `codex app-server` and the Codex launcher are never listed, so they cannot be reaped.
+- **Busy sessions are never reaped by idle.** A session its agent reports busy (working on a turn) shows `busy` and has no idle time, so `i` and `reap --idle` never pick it.
+- **Background sessions use the agent's command.** A Claude background session is respawned by its supervisor when killed, so agentop refuses to signal it and prints the `claude stop <id>` command that ends it.
 - **A confirmation gate** on every kill shows the count and the RAM you will reclaim.
 - **Read-only until you act.** Discovery never touches anything; the only write is the signal you ask for.
 
 ## How idle works
 
-Idle is the time since the session's terminal last did anything (the same signal the classic `w` command uses). It reflects real activity for every agent and source, accurate to the second. A session with no terminal output for days is genuinely idle; one that is actively working never shows as idle.
+Idle is the time since the session last did anything, from two clocks: the terminal's last I/O (the same signal the classic `w` command uses) and the activity time the agent records itself (Claude's session file). The newer one wins, so a turn that streams with a quiet screen does not look idle, and a session without a terminal still has a real idle time. A session the agent reports busy shows `busy` and is never idle.
 
-In the rare case where a session has no terminal to read from, idle falls back to the process age and is marked with a `*` (for example `5d*`) so you know it is an estimate.
+When neither clock is known, idle falls back to the emdash task's last interaction, then to the process age, marked with a `*` (for example `5d*`) so you know it is an estimate.
 
 ## Platform support
 
-macOS and Linux. agentop introspects processes with `ps` and `lsof`, ends them with `SIGTERM` and, after the grace period, `SIGKILL` (Unix-only), and reads terminal device timestamps through OS-specific syscalls. Windows uses a different console model and is out of scope.
+macOS and Linux. agentop reads processes through agentio (`ps` and `lsof` on macOS, `/proc` on Linux), ends them with `SIGTERM` and, after the grace period, `SIGKILL` (Unix-only), and reads terminal device timestamps through OS-specific syscalls. Windows uses a different console model and is out of scope.
 
 ## Branding
 

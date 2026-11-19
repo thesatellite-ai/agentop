@@ -26,8 +26,9 @@ func newRootCmd() *cobra.Command {
 	root := &cobra.Command{
 		Use:   BinaryName,
 		Short: "agentop — htop for AI coding agents",
-		Long: `agentop finds every running AI coding-agent session across cmux,
-emdash, and plain terminals — showing memory, idle age, and which task each
+		Long: `agentop finds every running AI coding-agent session (Claude Code,
+Codex, Gemini CLI, pi, opencode) across cmux, emdash, runbay, and plain
+terminals — showing memory, idle age, and which task each
 belongs to — and lets you selectively cull the idle ones to reclaim RAM.
 
 Run with no arguments to open the interactive TUI.`,
@@ -36,7 +37,7 @@ Run with no arguments to open the interactive TUI.`,
 		SilenceUsage:  true,
 		// Default action (no subcommand) launches the TUI.
 		RunE: func(cmd *cobra.Command, args []string) error {
-			return runTUI()
+			return runTUI(cmd.Context())
 		},
 	}
 	root.AddCommand(newListCmd())

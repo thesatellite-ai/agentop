@@ -141,7 +141,7 @@ func (a *App) openKillModal(pids []int) {
 		}
 	}
 	modal := tview.NewModal().
-		SetText(fmt.Sprintf("Kill %d session(s) (SIGTERM, SIGKILL after %s),\nreclaim ~%s?", len(pids), collect.DefaultGrace, mem(total))).
+		SetText(fmt.Sprintf("Kill %d session(s) (SIGTERM, SIGKILL after the agent's grace, %s),\nreclaim ~%s?", len(pids), collect.DefaultGrace, mem(total))).
 		AddButtons([]string{btnCancel, btnKill}).
 		SetDoneFunc(func(idx int, label string) {
 			if label == btnKill {
@@ -155,8 +155,9 @@ func (a *App) openKillModal(pids []int) {
 	a.app.SetFocus(modal)
 }
 
-// doKill reaps the given pids. The reap blocks until the kernel confirms each
-// process is gone (Reap polls, retries with SIGKILL on stragglers), so it runs
+// doKill reaps the given pids through the agent's stop plan. The reap blocks
+// until each process is confirmed gone (the Reaper polls, retries with SIGKILL
+// on stragglers), so it runs
 // on a background goroutine to keep the UI responsive; the post-kill repaint is
 // marshaled back onto the tview event loop via QueueUpdateDraw. This fixes the
 // two coupled bugs: the list stayed stale because the old code reloaded before
@@ -172,7 +173,7 @@ func (a *App) doKill(pids []int) {
 	// can refuse a pid that ended or was reused since then.
 	targets := a.targetsFor(pids)
 	go func() {
-		results := collect.Reap(targets, collect.DefaultGrace)
+		results := a.reap(targets)
 		a.app.QueueUpdateDraw(func() {
 			_ = a.reload()
 			a.setStatus(collect.Summarize(results).String())
@@ -270,8 +271,9 @@ func (a *App) openHelp() {
 		fmt.Sprintf(" %sr[-]          refresh", ac),
 		fmt.Sprintf(" %sq[-]          quit", ac),
 		"",
-		fmt.Sprintf(" %sidle = time since last terminal I/O (real activity)[-]", mu),
-		fmt.Sprintf(" %s*[-] = no controlling tty, fell back to process age (rare)", mu),
+		fmt.Sprintf(" %sidle = since last terminal I/O or agent activity, newer wins[-]", mu),
+		fmt.Sprintf(" %sbusy[-] = the agent says it is working on a turn (never reaped by idle)", mu),
+		fmt.Sprintf(" %s*[-] = no activity known, fell back to process age (rare)", mu),
 		"",
 		fmt.Sprintf(" %spress any key to close[-]", mu),
 	}

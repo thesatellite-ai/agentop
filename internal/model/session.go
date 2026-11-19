@@ -2,17 +2,10 @@
 // pipeline (discover -> classify -> enrich -> rank -> render -> act).
 package model
 
-import "time"
+import (
+	"time"
 
-// AgentKind identifies which AI coding agent a process belongs to: Claude Code
-// or Codex today; the registry (internal/agent) is structured so adding another
-// agent is one new detector with no core changes.
-type AgentKind string
-
-const (
-	AgentClaude  AgentKind = "claude"
-	AgentCodex   AgentKind = "codex"
-	AgentUnknown AgentKind = "unknown"
+	"github.com/ubgo/agentio"
 )
 
 // Source is which controller launched the session. Classification reflects
@@ -30,22 +23,35 @@ const (
 // Sources lists every Source, in the order the UI shows them.
 var Sources = []Source{SourceEmdash, SourceCmux, SourceRunbay, SourceDirect}
 
-// Session is one running agent process, enriched with everything needed to
-// decide whether to reap it.
+// Session is one running agent conversation process, enriched with
+// everything needed to decide whether to reap it. Which agent it is, and
+// what the agent recorded about it, come from agentio.
 type Session struct {
-	PID       int       `json:"pid"`
-	PPID      int       `json:"ppid"`
-	Agent     AgentKind `json:"agent"`
-	RSSBytes  uint64    `json:"rss_bytes"`
-	Cwd       string    `json:"cwd"`
-	Source    Source    `json:"source"`
-	Command   string    `json:"command"`
-	TTY       string    `json:"tty,omitempty"`
-	StartedAt time.Time `json:"started_at"`
+	PID   int        `json:"pid"`
+	PPID  int        `json:"ppid"`
+	Agent agentio.ID `json:"agent"`
+	// Kind is the agent process kind agentio classified (always a
+	// conversation kind here: cli or exec).
+	Kind      agentio.ProcessKind `json:"kind,omitempty"`
+	RSSBytes  uint64              `json:"rss_bytes"`
+	Cwd       string              `json:"cwd"`
+	Source    Source              `json:"source"`
+	Command   string              `json:"command"`
+	TTY       string              `json:"tty,omitempty"`
+	StartedAt time.Time           `json:"started_at"`
 
 	// TTYActive is the last I/O time of the controlling terminal (real
 	// activity for cmux/direct sessions, which have no DB timestamp).
 	TTYActive time.Time `json:"tty_active,omitempty"`
+
+	// What the agent recorded about this process (agentio
+	// ProcessSession); zero values when nothing ties it to a conversation.
+	ConversationID string                 `json:"conversation_id,omitempty"`
+	Home           string                 `json:"home,omitempty"`
+	Version        string                 `json:"version,omitempty"`
+	Status         agentio.SessionStatus  `json:"status"`
+	AgentActive    time.Time              `json:"agent_active,omitempty"`
+	Join           agentio.JoinConfidence `json:"join"`
 
 	// emdash enrichment (zero values when not an emdash worktree)
 	Task       string    `json:"task,omitempty"`
