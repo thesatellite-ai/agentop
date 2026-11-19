@@ -107,7 +107,7 @@ func (a *App) chooseSort(f SortField) {
 	} else {
 		a.sortField = f
 		// sensible default direction: idle & memory show biggest first
-		a.sortAsc = !(f == SortIdle || f == SortMem)
+		a.sortAsc = f != SortIdle && f != SortMem
 	}
 	a.applyFilterSort()
 	a.refreshTable()
