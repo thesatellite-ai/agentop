@@ -13,7 +13,7 @@ func TestFuzzyMatch(t *testing.T) {
 		{"cdx", "codex", true},            // gapped subsequence
 		{"xyz", "codex", false},           // missing chars
 		{"emdash", "cmux", false},         // no overlap
-		{"go", "sample_go", true},           // trailing match
+		{"go", "sample_go", true},         // trailing match
 		{"zz", "codex", false},            // repeated char not present
 	}
 	for _, tc := range cases {
