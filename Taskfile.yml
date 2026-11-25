@@ -47,9 +47,15 @@ tasks:
     cmds:
       - golangci-lint run ./...
 
+  names:
+    desc: Check tracked files for private names (needs the local word list; skips without it)
+    cmds:
+      - ./scripts/check-names.sh --all
+
   check:
     desc: The gate - gofmt, vet, race tests, lint, cross-compile
     cmds:
+      - task: names
       - test -z "$(gofmt -l .)" || (gofmt -l . && exit 1)
       - go vet ./...
       - go test -race ./...
